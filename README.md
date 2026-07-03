@@ -1,0 +1,63 @@
+# Pipeline de Audições — Last.fm (+ Spotify) → MinIO → Airflow → PostgreSQL
+
+Projeto de portfólio de engenharia de dados. A ideia: entender **como meu gosto
+musical mudou ao longo dos anos**, transformando essa dúvida numa pipeline de dados
+de ponta a ponta.
+
+A pipeline coleta o meu histórico de músicas (**API do Last.fm**), guarda em um data
+lake (**MinIO**), trata os dados e carrega em um data warehouse (**PostgreSQL**),
+tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhão
+(bronze → prata → ouro). O **Spotify** entra como enriquecimento opcional numa fase 2.
+
+> **Status:** 🚧 início do projeto (Missão 0 do roteiro). Estrutura versionada;
+> o código de cada etapa é escrito, missão a missão, seguindo `docs/roteiro_post.md`.
+
+## Arquitetura
+
+```
+Last.fm API ─┐
+(scrobbles)  │     MinIO (data lake)                  PostgreSQL (warehouse)
+             ├──►  raw/        (JSON cru, bronze)
+             └──►  processed/  (Parquet, prata)  ───►  analytics (ouro)
+                                                       fato_audicoes + dimensões
+Spotify API ·····(opcional: enriquece as dimensões)···┘
+
+        (tudo agendado, executado e monitorado pelo Airflow)
+```
+
+Diagrama completo em [`docs/arquitetura.jpg`](docs/arquitetura.jpg).
+
+## Documentação
+
+- [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos).
+- [`docs/roteiro_post.md`](docs/roteiro_post.md) — roteiro passo a passo (Missão 0 → 8) para construir e publicar.
+- `docs/Stacks_Engenharia_de_Dados.docx` e `docs/Guia_de_Estudos_Engenharia_de_Dados.docx` — material de estudo de apoio.
+
+## Pré-requisitos
+
+- Docker + Docker Compose
+- Python 3.10+
+- Conta no Last.fm + API key (grátis): https://www.last.fm/api/account/create
+
+## Como começar
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+cp .env.example .env               # e preencha LASTFM_API_KEY e LASTFM_USER
+```
+
+## Roteiro (casado com as fases do guia)
+
+- [x] Missão 0 — Esqueleto do projeto, Git e venv
+- [ ] Missão 1 — Conversar com a API do Last.fm
+- [ ] Missão 2 — Guardar o dado cru (bronze, local)
+- [ ] Missão 3 — Subir o data lake (Docker + MinIO)
+- [ ] Missão 4 — Colocar o dado dentro do lake (ingestão)
+- [ ] Missão 5 — Preparar a extração para virar uma tarefa
+- [ ] Missão 6 — Subir o Airflow
+- [ ] Missão 7 — A DAG: ingestão orquestrada
+- [ ] Missão 8 — Deixar apresentável e publicar
+- [ ] Fase 2 — Transformação (Parquet), carga (esquema estrela) e Spotify (opcional)
