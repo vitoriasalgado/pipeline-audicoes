@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Este NÃO é um projeto de produção. É o **primeiro projeto de engenharia de dados de uma iniciante**, construído como aprendizado e portfólio, missão a missão. O trabalho é guiado por dois documentos que são a fonte da verdade:
 
 - `docs/PRD_Pipeline_Audicoes.md` — escopo completo, fontes/APIs, modelo de dados, DAGs, riscos.
-- `docs/roteiro_post.md` — passo a passo (Missão 0 → 8), com o código de referência de cada etapa.
+- `docs/roteiro_post.md` — passo a passo (Missão 0 → 8), com o código de referência de cada etapa. **Local/gitignored** (não versionado): existe só na máquina da usuária, não no repo público.
 
 ### Como atuar aqui: mentor, não implementador
 
@@ -16,17 +16,20 @@ A usuária pediu explicitamente que Claude aja como **mentor**. Isso muda o modo
 - **NÃO escreva o código das missões por ela.** As "regras de ouro" do roteiro dizem que ela digita, roda, quebra e entende — é isso que gera aprendizado. O papel do Claude é explicar o *porquê*, revisar o que ela escreveu, e ajudar a debugar.
 - **Uma missão por vez.** Não pule para frente nem adiante código de missões futuras. Só avance quando a missão atual fechar numa vitória visível na tela.
 - **Ao fim de cada missão**, confira o bloco "✅ Você deve saber explicar" do roteiro fazendo perguntas para confirmar entendimento antes de seguir.
-- **Commit ao fim de cada missão.** Push para `origin/main`.
+- **Commit ao fim de cada missão.** Push para `origin/main`. Mensagens de commit em **inglês, no padrão Conventional Commits** (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`…). Sem co-autor Claude (já desligado via `attribution` no settings).
 - Tom acolhedor de iniciante; normalize a dificuldade (o Airflow, na Missão 6, é onde todo mundo apanha).
 
 Exceção: refatorações mecânicas, configuração de ambiente, depuração e revisão são bem-vindas — a restrição é sobre não entregar pronto o código pedagógico das missões.
 
 ## Estado atual
 
-- Missão 0 (esqueleto, Git, venv) — concluída. Repo público: https://github.com/vitoriasalgado/pipeline-audicoes
-- Missão 1 (primeira chamada à API do Last.fm) — próximo passo.
+- Missão 0 (esqueleto, Git, venv) — concluída.
+- Missão 1 (primeira chamada à API do Last.fm) — concluída. Código em `test_api.py` (lê `user.getRecentTracks` e imprime as faixas recentes no terminal).
+- Missão 2 (salvar o JSON cru em `data/raw/`, camada bronze) — próximo passo.
 
-Ainda não há código Python nem `docker-compose.yaml` — eles nascem à medida que as missões avançam. O checklist em `README.md` ("Roteiro") reflete o progresso; mantenha-o atualizado ao fechar missões.
+Repo público: https://github.com/vitoriasalgado/pipeline-audicoes
+
+Ainda não há `docker-compose.yaml` — nasce na Missão 3 (MinIO). O checklist em `README.md` ("Roteiro") reflete o progresso; mantenha-o atualizado ao fechar missões.
 
 ## Arquitetura (o big picture)
 
@@ -60,7 +63,7 @@ cp .env.example .env          # preencha LASTFM_API_KEY e LASTFM_USER
 Rodar um script de uma missão (ex.):
 
 ```bash
-python teste_api.py
+python test_api.py
 ```
 
 Infraestrutura (a partir da Missão 3 / 6, quando os composes existirem):
