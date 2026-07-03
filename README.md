@@ -9,8 +9,8 @@ lake (**MinIO**), trata os dados e carrega em um data warehouse (**PostgreSQL**)
 tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhão
 (bronze → prata → ouro). O **Spotify** entra como enriquecimento opcional numa fase 2.
 
-> **Status:** 🚧 início do projeto (Missão 0 do roteiro). Estrutura versionada;
-> o código de cada etapa é escrito, missão a missão, seguindo `docs/roteiro_post.md`.
+> **Status:** 🚧 início do projeto. Estrutura versionada;
+> o código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
 
 ## Arquitetura
 
@@ -30,8 +30,6 @@ Diagrama completo em [`docs/arquitetura.jpg`](docs/arquitetura.jpg).
 ## Documentação
 
 - [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos).
-- [`docs/roteiro_post.md`](docs/roteiro_post.md) — roteiro passo a passo (Missão 0 → 8) para construir e publicar.
-- `docs/Stacks_Engenharia_de_Dados.docx` e `docs/Guia_de_Estudos_Engenharia_de_Dados.docx` — material de estudo de apoio.
 
 ## Pré-requisitos
 

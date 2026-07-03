@@ -12,3 +12,7 @@ logs/
 
 # macOS
 .DS_Store
+
+# Material de estudo pessoal e rascunho de post (fica local, fora do repo público)
+docs/roteiro_post.md
+docs/*.docx
