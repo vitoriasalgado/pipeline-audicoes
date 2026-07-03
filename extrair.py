@@ -1,4 +1,4 @@
-import requests, os
+import requests, os, json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,16 +11,18 @@ params = {
     "user": USER,
     "api_key": API_Key,
     "format": "json",
-    "limit": 10,
+    "limit": 200,
 }
 
 response = requests.get(url, params=params, timeout=30)
 response.raise_for_status()
 data = response.json()
 
-tracks = data["recenttracks"]["track"]
-for t in tracks:
-    artist = t["artist"]["#text"]
-    track_name = t["name"]
-    print(f"{artist} - {track_name}")
-    
+os.makedirs("data/raw", exist_ok=True)
+
+with open("data/raw/recent.json", "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+
+total_tracks = data["recenttracks"]["@attr"]["total"]
+
+print(f"Salvo! você tem {total_tracks} scrobbles.")
