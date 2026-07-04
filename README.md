@@ -52,7 +52,7 @@ cp .env.example .env               # e preencha LASTFM_API_KEY e LASTFM_USER
 - [x] Missão 0 — Esqueleto do projeto, Git e venv
 - [x] Missão 1 — Conversar com a API do Last.fm
 - [x] Missão 2 — Guardar o dado cru (bronze, local)
-- [ ] Missão 3 — Subir o data lake (Docker + MinIO)
+- [x] Missão 3 — Subir o data lake (Docker + MinIO)
 - [ ] Missão 4 — Colocar o dado dentro do lake (ingestão)
 - [ ] Missão 5 — Preparar a extração para virar uma tarefa
 - [ ] Missão 6 — Subir o Airflow
