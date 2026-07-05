@@ -15,4 +15,5 @@ logs/
 
 # Material de estudo pessoal e rascunho de post (fica local, fora do repo público)
 docs/roteiro_post.md
+docs/rascunho_post.md
 docs/*.docx

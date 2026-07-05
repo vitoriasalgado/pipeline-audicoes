@@ -23,13 +23,12 @@ Exceção: refatorações mecânicas, configuração de ambiente, depuração e 
 
 ## Estado atual
 
-- Missão 0 (esqueleto, Git, venv) — concluída.
-- Missão 1 (primeira chamada à API do Last.fm) — concluída. Código em `test_api.py` (lê `user.getRecentTracks` e imprime as faixas recentes no terminal).
-- Missão 2 (salvar o JSON cru em `data/raw/`, camada bronze) — próximo passo.
+O progresso vive numa **fonte única de verdade: o checklist "Roteiro" do `README.md`** — marque `[x]` ao fechar cada missão. NÃO rastreie o progresso missão-a-missão aqui. Este arquivo guarda só o que é estável — arquitetura, princípios, regras de mentoria.
+
 
 Repo público: https://github.com/vitoriasalgado/pipeline-audicoes
 
-Ainda não há `docker-compose.yaml` — nasce na Missão 3 (MinIO). O checklist em `README.md` ("Roteiro") reflete o progresso; mantenha-o atualizado ao fechar missões.
+Documentos-fonte das missões: `docs/roteiro_post.md` (passo a passo Missão 0→8, **local/gitignored**) e `docs/rascunho_post.md` (caderno de síntese do post, preenchido a cada missão).
 
 ## Arquitetura (o big picture)
 
