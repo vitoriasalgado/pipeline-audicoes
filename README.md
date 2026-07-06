@@ -9,8 +9,8 @@ lake (**MinIO**), trata os dados e carrega em um data warehouse (**PostgreSQL**)
 tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhão
 (bronze → prata → ouro). O **Spotify** entra como enriquecimento opcional numa fase 2.
 
-> **Status:** 🚧 início do projeto. Estrutura versionada;
-> o código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
+> **Status:** 🚧 em construção — data lake e ingestão prontos; orquestração em andamento.
+> O código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
 
 ## Arquitetura
 
@@ -45,6 +45,9 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env               # e preencha LASTFM_API_KEY e LASTFM_USER
+
+docker compose up -d               # sobe o MinIO (data lake)
+# console em http://localhost:9001  (minioadmin / minioadmin)
 ```
 
 ## Roteiro (casado com as fases do guia)
@@ -54,7 +57,7 @@ cp .env.example .env               # e preencha LASTFM_API_KEY e LASTFM_USER
 - [x] Missão 2 — Guardar o dado cru (bronze, local)
 - [x] Missão 3 — Subir o data lake (Docker + MinIO)
 - [x] Missão 4 — Colocar o dado dentro do lake (ingestão)
-- [ ] Missão 5 — Preparar a extração para virar uma tarefa
+- [x] Missão 5 — Preparar a extração para virar uma tarefa
 - [ ] Missão 6 — Subir o Airflow
 - [ ] Missão 7 — A DAG: ingestão orquestrada
 - [ ] Missão 8 — Deixar apresentável e publicar
