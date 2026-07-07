@@ -58,7 +58,7 @@ docker compose up -d               # sobe o MinIO (data lake)
 - [x] Missão 3 — Subir o data lake (Docker + MinIO)
 - [x] Missão 4 — Colocar o dado dentro do lake (ingestão)
 - [x] Missão 5 — Preparar a extração para virar uma tarefa
-- [ ] Missão 6 — Subir o Airflow
+- [x] Missão 6 — Subir o Airflow
 - [ ] Missão 7 — A DAG: ingestão orquestrada
 - [ ] Missão 8 — Deixar apresentável e publicar
 - [ ] Fase 2 — Transformação (Parquet), carga (esquema estrela) e Spotify (opcional)
