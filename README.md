@@ -77,5 +77,5 @@ Para rodar a ingestão: no Airflow, ative a DAG **`pipeline_audicoes`** e clique
 - [x] Missão 5 — Preparar a extração para virar uma tarefa
 - [x] Missão 6 — Subir o Airflow
 - [x] Missão 7 — A DAG: ingestão orquestrada
-- [ ] Missão 8 — Deixar apresentável e publicar
+- [x] Missão 8 — Deixar apresentável e publicar
 - [ ] Fase 2 — Transformação (Parquet), carga (esquema estrela) e Spotify (opcional)
