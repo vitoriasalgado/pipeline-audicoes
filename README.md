@@ -27,6 +27,16 @@ Spotify API ·····(opcional: enriquece as dimensões)···┘
 
 Diagrama completo em [`docs/arquitetura.jpg`](docs/arquitetura.jpg).
 
+## O que já roda
+
+- ✅ **Ingestão orquestrada** — uma DAG do Airflow puxa meu histórico do Last.fm e grava o JSON cru no data lake (MinIO), no horário agendado. A task fica verde na interface, com retry automático se falhar.
+
+## O que vem depois (Fase 2)
+
+- ⏳ **Transformação** — ler o JSON cru, limpar com pandas e salvar em Parquet (camada prata).
+- ⏳ **Carga** — modelar um esquema estrela e carregar num data warehouse PostgreSQL (camada ouro).
+- ⏳ **Spotify** (opcional) — enriquecer as dimensões via OAuth.
+
 ## Documentação
 
 - [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos).
@@ -46,9 +56,16 @@ pip install -r requirements.txt
 
 cp .env.example .env               # e preencha LASTFM_API_KEY e LASTFM_USER
 
-docker compose up -d               # sobe o MinIO (data lake)
-# console em http://localhost:9001  (minioadmin / minioadmin)
+docker compose up airflow-init     # 1ª vez: inicializa o banco de metadados do Airflow
+docker compose up -d               # sobe tudo: Airflow + MinIO + Postgres + Redis
 ```
+
+Serviços no ar:
+
+- **Airflow** — http://localhost:8080 (`airflow` / `airflow`)
+- **MinIO** (console do data lake) — http://localhost:9001 (`minioadmin` / `minioadmin`)
+
+Para rodar a ingestão: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. A task `extrair` puxa o histórico do Last.fm e grava o JSON no bucket `raw` do MinIO.
 
 ## Roteiro (casado com as fases do guia)
 
