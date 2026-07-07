@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json, os, requests, boto3
 
 from airflow import DAG
@@ -35,6 +35,10 @@ with DAG(
     start_date=datetime(2024, 1, 1),
     schedule="@daily",
     catchup=False,
+    default_args={
+        "retries": 2,
+        "retry_delay": timedelta(minutes=1),
+    },
     tags=["lastfm"],
 ) as dag:
     extrair_task = PythonOperator(
