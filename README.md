@@ -78,4 +78,11 @@ Para rodar a ingestão: no Airflow, ative a DAG **`pipeline_audicoes`** e clique
 - [x] Missão 6 — Subir o Airflow
 - [x] Missão 7 — A DAG: ingestão orquestrada
 - [x] Missão 8 — Deixar apresentável e publicar
-- [ ] Fase 2 — Transformação (Parquet), carga (esquema estrela) e Spotify (opcional)
+
+**Fase 2 — do lake ao warehouse (prata e ouro):**
+
+- [ ] Missão 9 — Transformação: JSON cru → Parquet limpo (prata)
+- [ ] Missão 10 — Carga: esquema estrela no PostgreSQL (ouro)
+- [ ] Missão 11 — A DAG de ponta a ponta (extrair → transformar → carregar)
+- [ ] Missão 12 — A primeira query analítica ("artista mais ouvido por mês")
+- [ ] Fase 2b (opcional) — Spotify: enriquecer as dimensões via OAuth
