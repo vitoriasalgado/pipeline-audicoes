@@ -81,7 +81,7 @@ Para rodar a ingestão: no Airflow, ative a DAG **`pipeline_audicoes`** e clique
 
 **Fase 2 — do lake ao warehouse (prata e ouro):**
 
-- [ ] Missão 9 — Transformação: JSON cru → Parquet limpo (prata)
+- [x] Missão 9 — Transformação: JSON cru → Parquet limpo (prata)
 - [ ] Missão 10 — Carga: esquema estrela no PostgreSQL (ouro)
 - [ ] Missão 11 — A DAG de ponta a ponta (extrair → transformar → carregar)
 - [ ] Missão 12 — A primeira query analítica ("artista mais ouvido por mês")
