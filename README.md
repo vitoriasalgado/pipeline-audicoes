@@ -9,7 +9,7 @@ lake (**MinIO**), trata os dados e carrega em um data warehouse (**PostgreSQL**)
 tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhão
 (bronze → prata → ouro). O **Spotify** entra como enriquecimento opcional numa fase 2.
 
-> **Status:** 🚧 em construção — pipeline de ponta a ponta rodando no Airflow (Last.fm → MinIO → PostgreSQL, bronze → prata → ouro). Falta a primeira query analítica e o enriquecimento opcional com Spotify.
+> **Status:** 🚧 em construção — pipeline de ponta a ponta rodando no Airflow (Last.fm → MinIO → PostgreSQL, bronze → prata → ouro), histórico completo carregado no warehouse (~6 anos de audições) e a primeira pergunta analítica já respondida por SQL. Falta só o enriquecimento opcional com Spotify.
 > O código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
 
 ## Arquitetura
@@ -37,9 +37,12 @@ Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a p
 
 As tasks ficam verdes na interface, com retry automático se falharem.
 
+Além da ingestão incremental do dia a dia (a DAG), a **carga histórica completa** (`backfill.py`) já povoou o warehouse com ~6 anos de audições — a base para as análises.
+
+- ✅ **Análise (ouro)** — a pergunta que originou o projeto já é respondida por SQL sobre o esquema estrela: *"qual foi meu artista mais ouvido em cada mês"* (cruzando `fato_audicoes` com as dimensões, uma linha por mês ao longo dos anos).
+
 ## O que vem depois (Fase 2)
 
-- ⏳ **Primeira query analítica** — responder à pergunta original: "qual foi meu artista mais ouvido em cada mês".
 - ⏳ **Spotify** (opcional) — enriquecer as dimensões via OAuth.
 
 ## Documentação
@@ -71,7 +74,15 @@ Serviços no ar:
 - **MinIO** (console do data lake) — http://localhost:9001 (`minioadmin` / `minioadmin`)
 - **PostgreSQL** (warehouse, camada ouro) — `localhost:5433` (`warehouse` / `warehouse`, banco `warehouse`)
 
-Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `extrair → transformar → carregar`: puxa o histórico do Last.fm e grava o JSON no bucket `raw` do MinIO (bronze), limpa e converte para Parquet no bucket `processed` (prata), e carrega o esquema estrela no PostgreSQL (ouro).
+Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `extrair → transformar → carregar`: puxa o histórico do Last.fm e grava o JSON no bucket `raw` do MinIO (bronze), limpa e converte para Parquet no bucket `processed` (prata), e carrega o esquema estrela no PostgreSQL (ouro). Essa é a ingestão **incremental** — cada execução traz o que há de novo.
+
+Para carregar o **histórico completo** de uma vez (não só as faixas recentes), rode o script de carga histórica:
+
+```bash
+python backfill.py
+```
+
+Ele pagina todo o histórico do Last.fm, grava cada página no bronze e faz a carga em lote no warehouse. É uma operação pontual — a DAG cuida do dia a dia daí em diante.
 
 ## Roteiro (casado com as fases do guia)
 
