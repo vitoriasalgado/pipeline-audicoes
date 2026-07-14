@@ -9,7 +9,7 @@ lake (**MinIO**), trata os dados e carrega em um data warehouse (**PostgreSQL**)
 tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhão
 (bronze → prata → ouro). O **Spotify** entra como enriquecimento opcional numa fase 2.
 
-> **Status:** 🚧 em construção — ingestão orquestrada pelo Airflow (Last.fm → MinIO) rodando; transformação e carga na Fase 2.
+> **Status:** 🚧 em construção — pipeline de ponta a ponta rodando no Airflow (Last.fm → MinIO → PostgreSQL, bronze → prata → ouro). Falta a primeira query analítica e o enriquecimento opcional com Spotify.
 > O código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
 
 ## Arquitetura
@@ -29,12 +29,17 @@ Diagrama completo em [`docs/arquitetura.jpg`](docs/arquitetura.jpg).
 
 ## O que já roda
 
-- ✅ **Ingestão orquestrada** — uma DAG do Airflow puxa meu histórico do Last.fm e grava o JSON cru no data lake (MinIO), no horário agendado. A task fica verde na interface, com retry automático se falhar.
+Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a ponta, em sequência — `extrair → transformar → carregar`, as três tasks verdes numa mesma execução:
+
+- ✅ **Ingestão (bronze)** — puxa meu histórico do Last.fm e grava o JSON cru no data lake (MinIO), no horário agendado.
+- ✅ **Transformação (prata)** — lê o JSON cru, limpa com pandas (descarta o `nowplaying`, tipa e deduplica) e salva em Parquet.
+- ✅ **Carga (ouro)** — modela um esquema estrela (`fato_audicoes` + dimensões) e carrega no data warehouse PostgreSQL, de forma idempotente.
+
+As tasks ficam verdes na interface, com retry automático se falharem.
 
 ## O que vem depois (Fase 2)
 
-- ⏳ **Transformação** — ler o JSON cru, limpar com pandas e salvar em Parquet (camada prata).
-- ⏳ **Carga** — modelar um esquema estrela e carregar num data warehouse PostgreSQL (camada ouro).
+- ⏳ **Primeira query analítica** — responder à pergunta original: "qual foi meu artista mais ouvido em cada mês".
 - ⏳ **Spotify** (opcional) — enriquecer as dimensões via OAuth.
 
 ## Documentação
@@ -64,8 +69,9 @@ Serviços no ar:
 
 - **Airflow** — http://localhost:8080 (`airflow` / `airflow`)
 - **MinIO** (console do data lake) — http://localhost:9001 (`minioadmin` / `minioadmin`)
+- **PostgreSQL** (warehouse, camada ouro) — `localhost:5433` (`warehouse` / `warehouse`, banco `warehouse`)
 
-Para rodar a ingestão: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. A task `extrair` puxa o histórico do Last.fm e grava o JSON no bucket `raw` do MinIO.
+Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `extrair → transformar → carregar`: puxa o histórico do Last.fm e grava o JSON no bucket `raw` do MinIO (bronze), limpa e converte para Parquet no bucket `processed` (prata), e carrega o esquema estrela no PostgreSQL (ouro).
 
 ## Roteiro (casado com as fases do guia)
 
