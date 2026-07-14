@@ -103,6 +103,24 @@ services:
       start_period: 5s
     restart: always
 
+  warehouse:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: warehouse
+      POSTGRES_PASSWORD: warehouse
+      POSTGRES_DB: warehouse
+    ports:
+      - "5433:5432"             # host:container — o container é sempre 5432;
+                                # escolha um host DIFERENTE do Airflow pra não colidir
+    volumes:
+      - warehouse-db-volume:/var/lib/postgresql/data   # volume PRÓPRIO, nome novo (não o postgres-db-volume)
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "warehouse"]   # mesmo user do POSTGRES_USER
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
   redis:
     # Redis is limited to 7.2-bookworm due to licencing change
     # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
@@ -301,3 +319,4 @@ services:
 volumes:
   postgres-db-volume:
   minio_data:
+  warehouse-db-volume:
