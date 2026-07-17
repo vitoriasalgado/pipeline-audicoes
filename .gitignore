@@ -17,3 +17,6 @@ logs/
 docs/roteiro_post.md
 docs/rascunho_post.md
 docs/*.docx
+
+#arquivo spotipy
+.cache
