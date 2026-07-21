@@ -62,8 +62,10 @@ cp .env.example .env          # preencha LASTFM_API_KEY e LASTFM_USER
 Rodar um script de uma missão (ex.):
 
 ```bash
-python test_api.py
+python arquivo/test_api.py
 ```
+
+Estrutura das pastas (organizada na Fase 2b): `lastfm/` (fonte 1), `spotify/` (fonte 2), `db/` (schema.sql), `scripts/` (backfill), `arquivo/` (fósseis das primeiras missões, código aposentado mantido como registro), `dags/` (a DAG — o compose monta essa pasta). Scripts sempre rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`), pra os caminhos relativos e o `.cache` do spotipy resolverem certo.
 
 Infraestrutura (a partir da Missão 3 / 6, quando os composes existirem):
 

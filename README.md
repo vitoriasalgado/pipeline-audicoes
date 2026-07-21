@@ -79,7 +79,7 @@ Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique 
 Para carregar o **histórico completo** de uma vez (não só as faixas recentes), rode o script de carga histórica:
 
 ```bash
-python backfill.py
+python scripts/backfill.py
 ```
 
 Ele pagina todo o histórico do Last.fm, grava cada página no bronze e faz a carga em lote no warehouse. É uma operação pontual — a DAG cuida do dia a dia daí em diante.
