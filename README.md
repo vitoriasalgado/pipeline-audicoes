@@ -49,6 +49,20 @@ Além da ingestão incremental do dia a dia (a DAG), a **carga histórica comple
 
 - [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos).
 
+## Estrutura do projeto
+
+```
+lastfm/     fonte 1 — extração, transformação e carga do Last.fm
+spotify/    fonte 2 — extração e transformação do Spotify (OAuth)
+db/          schema.sql — o esquema do warehouse (dimensões + fatos)
+scripts/     backfill.py — carga histórica pontual
+dags/        a DAG do Airflow que orquestra a pipeline
+arquivo/     scripts das primeiras missões, aposentados (mantidos como registro)
+docs/        PRD e documentação
+```
+
+> Os scripts são rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`).
+
 ## Pré-requisitos
 
 - Docker + Docker Compose
@@ -106,7 +120,7 @@ Ele pagina todo o histórico do Last.fm, grava cada página no bronze e faz a ca
 
 - [x] Missão 13 — O app do Spotify e o primeiro OAuth (autenticar → top tracks no terminal)
 - [x] Missão 14 — Extrair → `raw`: top tracks/artists (3 time_ranges) + biblioteca salva (bronze)
-- [ ] Missão 15 — Transformar → `processed`: JSON do Spotify → Parquet limpo (prata)
+- [x] Missão 15 — Transformar → `processed`: JSON do Spotify → Parquet limpo (prata)
 - [ ] Missão 16 — Enriquecer as dimensões + `fato_top_spotify`: esquema constelação (ouro)
 - [ ] Missão 17 — A DAG `pipeline_spotify` (`@weekly`)
 - [ ] Missão 18 — A query cruzada Last.fm × Spotify (top computado vs mais tocado)
