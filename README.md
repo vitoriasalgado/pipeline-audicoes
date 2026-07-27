@@ -121,6 +121,6 @@ Ele pagina todo o histórico do Last.fm, grava cada página no bronze e faz a ca
 - [x] Missão 13 — O app do Spotify e o primeiro OAuth (autenticar → top tracks no terminal)
 - [x] Missão 14 — Extrair → `raw`: top tracks/artists (3 time_ranges) + biblioteca salva (bronze)
 - [x] Missão 15 — Transformar → `processed`: JSON do Spotify → Parquet limpo (prata)
-- [ ] Missão 16 — Enriquecer as dimensões + `fato_top_spotify`: esquema constelação (ouro)
+- [x] Missão 16 — Enriquecer as dimensões + `fato_top_spotify`: esquema constelação (ouro)
 - [ ] Missão 17 — A DAG `pipeline_spotify` (`@weekly`)
 - [ ] Missão 18 — A query cruzada Last.fm × Spotify (top computado vs mais tocado)

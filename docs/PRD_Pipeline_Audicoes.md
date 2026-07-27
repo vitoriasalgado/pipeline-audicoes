@@ -265,6 +265,7 @@ Gatilho `@weekly` (o "top" é computado em janelas de semanas/meses; não faz se
 | Complexidade do OAuth do Spotify | usar `spotipy` (cuida de fluxo, cache e refresh); scopes mínimos |
 | **Volatilidade da API do Spotify** (mudanças nov/2024 e fev/2026) | usar só endpoints de personalização do usuário; não depender de popularidade/recommendations; fixar versões |
 | Limite informal do Last.fm | paginação educada, poucas req/s |
+| **Extração não-incremental de verdade** (a DAG pega só os ~200 scrobbles mais recentes, sem o parâmetro `from`; com `catchup=False`, um gap maior que 200 — ex.: Docker/Airflow muito tempo offline — não entra no carregamento automático) | hoje mitigado pela idempotência (`ON CONFLICT DO NOTHING`, não duplica) + `scripts/backfill.py` manual para gaps grandes. **Melhoria futura:** passar `from` = último `scrobble_uts` já carregado na extração, tornando-a verdadeiramente incremental e cobrindo qualquer tamanho de gap |
 | Chaves/segredos expostos | `.env` + `.gitignore` |
 | Histórico do Spotify incompleto pela API | aceitar (só ~50 recentes); histórico é responsabilidade do Last.fm |
 | Casamento de faixas entre fontes | resolver por nome (chave de negócio); ids como apoio |
