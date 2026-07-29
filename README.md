@@ -7,9 +7,10 @@ de ponta a ponta.
 A pipeline coleta o meu histórico de músicas (**API do Last.fm**), guarda em um data
 lake (**MinIO**), trata os dados e carrega em um data warehouse (**PostgreSQL**),
 tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhão
-(bronze → prata → ouro). O **Spotify** entra como enriquecimento opcional numa fase 2.
+(bronze → prata → ouro). O **Spotify** entra como segunda fonte (fase 2b), enriquecendo
+as dimensões via OAuth.
 
-> **Status:** 🚧 em construção — pipeline de ponta a ponta rodando no Airflow (Last.fm → MinIO → PostgreSQL, bronze → prata → ouro), histórico completo carregado no warehouse (~6 anos de audições) e a primeira pergunta analítica já respondida por SQL. Falta só o enriquecimento opcional com Spotify.
+> **Status:** 🚧 em construção — **duas** pipelines rodando no Airflow: Last.fm (`pipeline_audicoes`, `@daily`) e Spotify (`pipeline_spotify`, `@weekly`), ambas bronze → prata → ouro. O histórico completo do Last.fm (~6 anos) está no warehouse e o Spotify já enriquece as dimensões — um **esquema constelação** (duas fatos, dimensões compartilhadas). Falta só a query que cruza as duas fontes.
 > O código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
 
 ## Arquitetura
@@ -19,10 +20,11 @@ Last.fm API ─┐
 (scrobbles)  │     MinIO (data lake)                  PostgreSQL (warehouse)
              ├──►  raw/        (JSON cru, bronze)
              └──►  processed/  (Parquet, prata)  ───►  analytics (ouro)
-                                                       fato_audicoes + dimensões
-Spotify API ·····(opcional: enriquece as dimensões)···┘
+Spotify API ─────►  (mesmo caminho bronze→prata→ouro)  fato_audicoes + fato_top_spotify
+(top + biblioteca, via OAuth)                          + dimensões (esquema constelação)
 
-        (tudo agendado, executado e monitorado pelo Airflow)
+        (tudo agendado, executado e monitorado pelo Airflow:
+         pipeline_audicoes @daily · pipeline_spotify @weekly)
 ```
 
 Diagrama completo em [`docs/arquitetura.jpg`](docs/arquitetura.jpg).
@@ -35,15 +37,15 @@ Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a p
 - ✅ **Transformação (prata)** — lê o JSON cru, limpa com pandas (descarta o `nowplaying`, tipa e deduplica) e salva em Parquet.
 - ✅ **Carga (ouro)** — modela um esquema estrela (`fato_audicoes` + dimensões) e carrega no data warehouse PostgreSQL, de forma idempotente.
 
-As tasks ficam verdes na interface, com retry automático se falharem.
-
 Além da ingestão incremental do dia a dia (a DAG), a **carga histórica completa** (`backfill.py`) já povoou o warehouse com ~6 anos de audições — a base para as análises.
 
 - ✅ **Análise (ouro)** — a pergunta que originou o projeto já é respondida por SQL sobre o esquema estrela: *"qual foi meu artista mais ouvido em cada mês"* (cruzando `fato_audicoes` com as dimensões, uma linha por mês ao longo dos anos).
 
-## O que vem depois (Fase 2)
+**Segunda fonte — Spotify (via OAuth).** Uma segunda DAG (`pipeline_spotify`, semanal) traz meus *tops* e minha biblioteca do Spotify pelo mesmo caminho bronze → prata → ouro. No warehouse, isso vira um **esquema constelação**: uma nova fato (`fato_top_spotify`) que compartilha as mesmas dimensões da `fato_audicoes`, além de enriquecer artistas e faixas com os ids do Spotify — casando as duas fontes **por nome**. O token OAuth roda sozinho dentro do container (sem navegador), reutilizando o *refresh token* em cache.
 
-- ⏳ **Spotify** (opcional) — enriquecer as dimensões via OAuth.
+## O que vem depois
+
+- ⏳ **A query cruzada Last.fm × Spotify** — comparar o *top computado* pelo Spotify (numa janela de tempo, só do que ouvi lá) com o *mais tocado* cru do Last.fm (evento a evento, ~6 anos, todas as fontes). Duas definições de "o que eu mais ouço", lado a lado.
 
 ## Documentação
 
@@ -68,6 +70,7 @@ docs/        PRD e documentação
 - Docker + Docker Compose
 - Python 3.10+
 - Conta no Last.fm + API key (grátis): https://www.last.fm/api/account/create
+- *(opcional, fase 2b)* App no [Spotify for Developers](https://developer.spotify.com/dashboard) — client id/secret + `redirect_uri` para o OAuth
 
 ## Como começar
 
@@ -88,7 +91,9 @@ Serviços no ar:
 - **MinIO** (console do data lake) — http://localhost:9001 (`minioadmin` / `minioadmin`)
 - **PostgreSQL** (warehouse, camada ouro) — `localhost:5433` (`warehouse` / `warehouse`, banco `warehouse`)
 
-Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `extrair → transformar → carregar`: puxa o histórico do Last.fm e grava o JSON no bucket `raw` do MinIO (bronze), limpa e converte para Parquet no bucket `processed` (prata), e carrega o esquema estrela no PostgreSQL (ouro). Essa é a ingestão **incremental** — cada execução traz o que há de novo.
+Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `extrair → transformar → carregar` — a ingestão **incremental** do Last.fm (cada execução traz o que há de novo).
+
+Há também uma segunda DAG, **`pipeline_spotify`** (`@weekly`), que faz o mesmo caminho para o Spotify — enriquecendo as dimensões e populando a `fato_top_spotify`. Ela requer as credenciais OAuth do Spotify no `.env` e a primeira autenticação feita localmente (o token fica em cache e é reaproveitado pelo container).
 
 Para carregar o **histórico completo** de uma vez (não só as faixas recentes), rode o script de carga histórica:
 
