@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-import json, os, requests, boto3, io, psycopg2
+import json, os, time, requests, boto3, io, psycopg2
 import pandas as pd
 
 from airflow import DAG
@@ -50,10 +50,13 @@ def extrair_para_minio(ti, ts_nodash):
     resp.raise_for_status()
     data = resp.json()
 
-    total = int(data["recenttracks"]["@attr"].get("total",0))
+    total = int(data["recenttracks"]["@attr"].get("total", 0))
     if total == 0:
         raise AirflowSkipException("nenhum scrobble novo desde a marca d'agua")
-    
+
+    total_paginas = int(data["recenttracks"]["@attr"].get("totalPages", 1))
+    print(f"scrobbles na janela: {total} em {total_paginas} pagina(s)", flush=True)
+
     s3 = boto3.client(
         "s3",
         endpoint_url="http://minio:9000",
@@ -61,9 +64,22 @@ def extrair_para_minio(ti, ts_nodash):
         aws_secret_access_key="minioadmin",
     )
     prefixo = f"lastfm/incremental/{ts_nodash}/"
+
+    # A primeira página já está em mãos (foi ela que nos disse quantas existem).
     corpo = json.dumps(data, ensure_ascii=False).encode("utf-8")
     s3.put_object(Bucket="raw", Key=f"{prefixo}page_0001.json", Body=corpo)
-    print(f"scrobbles na janela: {total} — gravado em {prefixo}", flush=True)
+    print(f"pagina 1/{total_paginas} gravada em {prefixo}", flush=True)
+
+    # As demais, uma por objeto — bronze imutável, como no backfill.
+    for pagina in range(2, total_paginas + 1):
+        time.sleep(0.25)                       # parcimônia com a API do Last.fm
+        resp = requests.get(url, params=dict(params, page=pagina), timeout=30)
+        resp.raise_for_status()
+        pagina_data = resp.json()
+
+        corpo = json.dumps(pagina_data, ensure_ascii=False).encode("utf-8")
+        s3.put_object(Bucket="raw", Key=f"{prefixo}page_{pagina:04d}.json", Body=corpo)
+        print(f"pagina {pagina}/{total_paginas} gravada", flush=True)
 
     return prefixo
 
