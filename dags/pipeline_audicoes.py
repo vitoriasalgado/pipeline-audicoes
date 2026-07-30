@@ -3,9 +3,37 @@ import json, os, requests, boto3, io, psycopg2
 import pandas as pd
 
 from airflow import DAG
+from airflow.exceptions import AirflowSkipException
 from airflow.operators.python import PythonOperator
 
-def extrair_para_minio():
+def descobrir_marca_dagua():
+
+    psycopg2_conn = psycopg2.connect(
+        host="warehouse",
+        port=5432,
+        dbname="warehouse",
+        user="warehouse",
+        password="warehouse",
+    )
+    cur = psycopg2_conn.cursor()
+    cur.execute("SELECT max(scrobble_uts) FROM fato_audicoes;")
+    marca_dagua = cur.fetchone()[0]
+
+    print(f"marca d'agua: {marca_dagua}", flush=True)
+
+    cur.close()
+    psycopg2_conn.close()
+
+    return marca_dagua
+    
+
+def extrair_para_minio(ti, ts_nodash):
+    marca_dagua = ti.xcom_pull(task_ids="descobrir_marca_dagua")
+    print(f"marca d'agua recebida: {marca_dagua}", flush=True)
+
+    if marca_dagua is None:
+        raise ValueError("fato_audicoes está vazia - rode o backfill antes")
+    
     api_key = os.environ['LASTFM_API_KEY']
     username = os.environ['LASTFM_USER']
 
@@ -15,22 +43,31 @@ def extrair_para_minio():
         "user": username,
         "api_key": api_key,
         "format": "json",
-        "limit": 200
+        "limit": 200,
+        "from": marca_dagua + 1
     }
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
+    total = int(data["recenttracks"]["@attr"].get("total",0))
+    if total == 0:
+        raise AirflowSkipException("nenhum scrobble novo desde a marca d'agua")
+    
     s3 = boto3.client(
         "s3",
         endpoint_url="http://minio:9000",
         aws_access_key_id="minioadmin",
         aws_secret_access_key="minioadmin",
     )
+    prefixo = f"lastfm/incremental/{ts_nodash}/"
     corpo = json.dumps(data, ensure_ascii=False).encode("utf-8")
-    s3.put_object(Bucket="raw", Key="lastfm/recent.json", Body=corpo)
-    print("Ingestão concluída: lastfm/recent.json no bucket raw")
-def transformar():
+    s3.put_object(Bucket="raw", Key=f"{prefixo}page_0001.json", Body=corpo)
+    print(f"scrobbles na janela: {total} — gravado em {prefixo}", flush=True)
+
+    return prefixo
+
+def transformar(ti):
 
     s3 = boto3.client(
         's3',
@@ -38,11 +75,21 @@ def transformar():
         aws_access_key_id="minioadmin",
         aws_secret_access_key="minioadmin",
     )
+    prefixo = ti.xcom_pull(task_ids="extrair")
+    print(f"lendo de {prefixo}", flush=True)
 
-    resposta = s3.get_object(Bucket="raw", Key="lastfm/recent.json")
-    conteudo = resposta["Body"].read().decode("utf-8")
-    data = json.loads(conteudo)
-    lista_de_faixas = data["recenttracks"]["track"]
+    objetos = s3.list_objects_v2(Bucket="raw", Prefix=prefixo)
+
+    lista_de_faixas = []
+    for obj in objetos["Contents"]:
+        conteudo = s3.get_object(Bucket="raw", Key=obj["Key"])["Body"].read().decode("utf-8")
+        data = json.loads(conteudo)
+        faixas = data["recenttracks"]["track"]
+        if isinstance(faixas, dict):
+            faixas = [faixas]
+        lista_de_faixas.extend(faixas)
+
+
     df = pd.json_normalize(lista_de_faixas)
     df = df[["name", "artist.#text", "album.#text", "date.uts", "mbid", "artist.mbid"]]
     df.rename(columns={
@@ -57,7 +104,7 @@ def transformar():
 
     df["scrobble_uts"] = pd.to_numeric(df["scrobbles_uts"], errors="coerce")
     df["data_hora"] = pd.to_datetime(df["scrobble_uts"], unit="s", errors="coerce")
-    df = df.dropna(subset=["scrobble_uts"])   # descarta o nowplaying (vem sem date)
+    df = df.dropna(subset=["scrobble_uts"]) 
     df = df.drop_duplicates(subset=["scrobble_uts", "faixa"])
     df = df.drop(columns=["scrobbles_uts"])
 
@@ -151,7 +198,11 @@ with DAG(
         "retry_delay": timedelta(minutes=1),
     },
     tags=["lastfm"],
-) as dag:
+) as dag: 
+    marca_dagua_task = PythonOperator(
+        task_id="descobrir_marca_dagua",
+        python_callable=descobrir_marca_dagua,
+    )
     extrair_task = PythonOperator(
         task_id="extrair",
         python_callable=extrair_para_minio,
@@ -164,6 +215,6 @@ with DAG(
         task_id="carregar",
         python_callable=carregar,
     )
-    extrair_task >> transformar_task >> carregar_task
+    marca_dagua_task >> extrair_task >> transformar_task >> carregar_task
 
 
