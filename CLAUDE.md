@@ -45,7 +45,7 @@ Last.fm API ──► raw/ (JSON, bronze) ──► processed/ (Parquet, prata) 
 
 Princípios que atravessam todo o código e devem ser respeitados nas decisões:
 
-- **Camadas medalhão separadas por responsabilidade:** a extração só escreve o `raw` (JSON cru) e NÃO se mistura com transformação; a transformação lê `raw` e escreve Parquet em `processed`; a carga modela e carrega o Postgres. Cada etapa tem um script em `lastfm/` e `spotify/` (`extrair_para_minio.py`, `transformar.py`, `carregar.py`…) **replicado inline dentro das DAGs** — ou seja, existem duas cópias de cada lógica, e mexer numa não muda a outra. Atenção a isso ao editar.
+- **Camadas medalhão separadas por responsabilidade:** a extração só escreve o `raw` (JSON cru) e NÃO se mistura com transformação; a transformação lê `raw` e escreve Parquet em `processed`; a carga modela e carrega o Postgres. Cada etapa tem um script em `lastfm/` e `spotify/`, **replicado inline dentro das DAGs** — as DAGs não importam nada dessas pastas. Existem duas cópias de cada lógica e mexer numa não muda a outra; **o que roda no Airflow é sempre a cópia em `dags/`**. As pastas por fonte são o registro de como cada etapa foi construída, missão a missão. Elas também não são homogêneas: dois dos três scripts de `lastfm/` foram convertidos para rodar em container (ver §Comandos), o terceiro não.
 - **`raw` é imutável e é a fonte única** — este é o princípio **pretendido**, e ele vale hoje só para o `scripts/backfill.py` (uma página por objeto). As DAGs agendadas gravam em chaves fixas e sobrescrevem o lote anterior: dívida **D2** (§9.1 do PRD). Não afirmar que o `raw` é imutável sem essa ressalva.
 - **Idempotência e carga incremental** são as duas decisões que definem a corretude do núcleo. A **idempotência está implementada** (filtrar `nowplaying`, que vem sem `date`; `UNIQUE (scrobble_uts, faixa_id)` com `ON CONFLICT DO NOTHING`). A **carga incremental não**: a DAG pede sempre os 200 scrobbles mais recentes, sem o parâmetro `from` e sem paginar — dívida **D1**. Gaps grandes são cobertos rodando o `backfill.py` na mão.
 - **Modelo estrela/constelação:** duas fatos (`fato_audicoes` do Last.fm, `fato_top_spotify`) compartilhando `dim_artista`, `dim_faixa`, `dim_tempo`. Faixas/artistas casam entre fontes **por nome** (chave de negócio); `spotify_*_id` e `mbid` são atributos de apoio e podem vir vazios.
@@ -74,11 +74,13 @@ pip install -r requirements.txt
 cp .env.example .env          # preencha LASTFM_API_KEY e LASTFM_USER
 ```
 
-Rodar um script de uma etapa (ex.):
+Rodar um script de host (ex.):
 
 ```bash
-python lastfm/transformar.py
+python lastfm/ler_parquet.py
 ```
+
+⚠️ **Nem todo `.py` em `lastfm/` roda no host.** `extrair_para_minio.py` e `transformar.py` apontam para `http://minio:9000` — nome de serviço, que só resolve **dentro** de um container. Rodá-los no host falha na resolução do nome. Não são scripts de host: são as versões moldadas para a DAG, e o `minio:9000` neles é deliberado (registrado nas mensagens dos commits `96e6a00` e `6e556cf`). Rodam no host: `lastfm/carregar.py`, `lastfm/ler_parquet.py`, `spotify/*.py`, `scripts/backfill.py` — todos com `localhost`.
 
 Estrutura das pastas (organizada na Fase 2b): `lastfm/` (fonte 1), `spotify/` (fonte 2), `db/` (schema.sql), `scripts/` (backfill), `arquivo/` (fósseis das primeiras missões, código aposentado mantido como registro), `dags/` (as **duas** DAGs — `pipeline_audicoes` e `pipeline_spotify`; o compose monta essa pasta). Scripts sempre rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`), pra os caminhos relativos e o `.cache` do spotipy resolverem certo.
 

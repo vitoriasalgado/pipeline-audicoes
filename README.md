@@ -54,16 +54,24 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 ## Estrutura do projeto
 
 ```
-lastfm/     fonte 1 — extração, transformação e carga do Last.fm
-spotify/    fonte 2 — extração e transformação do Spotify (OAuth)
+dags/        as duas DAGs do Airflow — é isto que roda em produção
+lastfm/      fonte 1 — cada etapa (extração, transformação, carga) como foi construída
+spotify/     fonte 2 — idem, para o Spotify (OAuth)
 db/          schema.sql — o esquema do warehouse (dimensões + fatos)
 scripts/     backfill.py — carga histórica pontual
-dags/        a DAG do Airflow que orquestra a pipeline
 arquivo/     scripts das primeiras missões, aposentados (mantidos como registro)
 docs/        PRD e documentação
 ```
 
-> Os scripts são rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`).
+> **O que roda no Airflow são as DAGs em `dags/`.** As pastas por fonte (`lastfm/`, `spotify/`)
+> guardam cada etapa como ela foi escrita, missão a missão — as DAGs **replicam essa lógica
+> inline**, não importam esses módulos. São duas cópias, e a que executa é a de `dags/`.
+> Manter assim foi consequência do projeto ser construído passo a passo; extrair um módulo
+> compartilhado é um refactor em aberto.
+
+> Os scripts de host são rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`).
+> Atenção: `lastfm/extrair_para_minio.py` e `lastfm/transformar.py` **não** rodam no host — eles
+> apontam para `minio:9000`, nome de serviço que só resolve dentro de um container.
 
 ## Pré-requisitos
 
@@ -82,8 +90,13 @@ pip install -r requirements.txt
 cp .env.example .env               # e preencha LASTFM_API_KEY e LASTFM_USER
 
 docker compose up airflow-init     # 1ª vez: inicializa o banco de metadados do Airflow
-docker compose up -d               # sobe tudo: Airflow + MinIO + Postgres + Redis
+docker compose up -d               # sobe tudo: Airflow + MinIO + Postgres + warehouse + Redis
 ```
+
+Na primeira subida o compose também prepara o que a pipeline espera encontrar, sem passo manual:
+
+- **os buckets `raw` e `processed`** no MinIO (serviço `minio-init`, que roda uma vez e encerra);
+- **as tabelas do warehouse**, aplicando [`db/schema.sql`](db/schema.sql) — o PostgreSQL executa esse arquivo apenas quando o volume de dados está vazio, ou seja, só na criação. Num warehouse já povoado ele é ignorado, e mudança de schema com dado dentro pede `ALTER TABLE`.
 
 Serviços no ar:
 
