@@ -32,7 +32,7 @@ Segue a arquitetura **medalhão** (bronze → prata → ouro) do documento de st
 - Entregar consultas SQL analíticas, incluindo o cruzamento Last.fm × Spotify.
 
 > Esta lista é o escopo **pretendido**, mantida como escrita no planejamento. O quanto cada
-> item está de fato atendido está na **§7**; onde a prática ainda divirge, na **§9.1**.
+> item está de fato atendido está na **§7**; onde a prática ainda diverge, na **§9.1**.
 
 ### Não-objetivos (fora do escopo atual)
 - Tasks de **qualidade de dados** dedicadas (planejado para a Fase 5, depois do núcleo).
@@ -225,7 +225,16 @@ referência à dívida correspondente na §9.1.
 3. **Transformar → `processed`:** recebe o prefixo pelo XCom, lista os objetos daquela pasta e concatena todas as páginas (tratando a esquisitice do Last.fm de devolver `track` como objeto, não lista, quando há um único resultado). Achata com `pd.json_normalize`, seleciona as 6 colunas de interesse, converte `date.uts`, **descarta o `nowplaying`** (vem sem `date` → `dropna`), deduplica por (`scrobble_uts`, `faixa`) e grava `processed/lastfm/recent.parquet`.
 4. **Carregar → `analytics`:** lê o Parquet e itera **linha a linha**: upsert em `dim_artista` (`ON CONFLICT (nome)`), `dim_faixa` (`ON CONFLICT (nome, artista_id)`) e `dim_tempo` (`ON CONFLICT (data, hora)`), cada um com `RETURNING id`; por fim insere em `fato_audicoes` com `ON CONFLICT (scrobble_uts, faixa_id) DO NOTHING`.
 
-**Duas garantias diferentes, e é importante não confundi-las.** A **idempotência** (`UNIQUE` + `ON CONFLICT`) garante que reprocessar não duplica. A **incrementalidade** (marca d'água + paginação) garante que nada é *deixado para trás*: a janela é determinada pelo que falta carregar, não por um número fixo de registros, e a paginação cobre janelas de qualquer tamanho — um intervalo longo sem execução entra inteiro na execução seguinte. As duas se cobrem mutuamente no ponto fraco da outra: paginar uma lista que continua crescendo é instável, e o que se duplicar por causa disso o `ON CONFLICT` descarta, enquanto o que escapar volta no run seguinte, porque a marca d'água não avançou além dele.
+**Duas garantias diferentes, e é importante não confundi-las.** A **idempotência** (`UNIQUE` + `ON CONFLICT`) garante que reprocessar não duplica. A **incrementalidade** (marca d'água + paginação) garante que a janela é determinada pelo que falta carregar, não por um número fixo de registros, e que ela cabe inteira em qualquer tamanho — um intervalo longo sem execução entra completo na execução seguinte.
+
+**O que a marca d'água *não* garante.** Ela é `max(scrobble_uts)` — uma marca de **nível máximo**, não um "carreguei tudo contiguamente até aqui". Se um scrobble em `X` ficasse de fora enquanto outro em `Y > X` entrasse, a execução seguinte partiria de `Y+1` e o `X` estaria perdido **para sempre**. A marca protege contra a janela inteira ter falhado, não contra buraco no meio dela.
+
+**Por que buraco no meio não acontece, e de onde vem a garantia de verdade.** Duas propriedades, nenhuma delas a marca d'água:
+
+- **A carga é atômica.** `carregar()` faz um único `commit()` no fim, depois do laço. Ou a janela inteira entra, ou nada entra — não existe estado parcial que deixe um `X` para trás enquanto o `Y` avança a marca. ⚠️ **Isso é estrutural, não detalhe de implementação.** A nota da §9.1 sobre trocar a carga linha a linha por `execute_values` só é segura se o `commit` continuar único; commit por lote ou por página reintroduz estado parcial e a garantia de recuperação cai **em silêncio**.
+- **O deslizamento da paginação só produz sobreposição.** O `getRecentTracks` devolve do mais recente para o mais antigo, e scrobbles novos entram pelo topo — então, durante o laço, os itens deslizam para páginas **posteriores**, que ainda não foram lidas. O efeito é ler algo duas vezes (o `ON CONFLICT` descarta), nunca pular. A direção inversa exigiria scrobbles serem **apagados** no Last.fm durante a extração; é possível, e é o único cenário conhecido em que a paginação criaria buraco.
+
+Quem quiser eliminar até esse resíduo pode congelar a janela passando também `to = <instante da extração>`; as fronteiras de página param de se mover, ao custo de deixar para o run seguinte o que for ouvido durante a extração — o que é inofensivo, já que a marca d'água não avança além do que entrou.
 
 **Imutabilidade por camada.** O `raw` é imutável: cada execução escreve numa pasta própria e nunca sobrescreve a anterior. O `processed` é deliberadamente **sobrescrito** — ele é derivado e regenerável, e a marca d'água garante o reprocessamento: se a `transformar` funciona e a `carregar` falha, o `scrobble_uts` não entra no warehouse, a marca não avança, e a execução seguinte volta a buscar exatamente aquela janela. Perder a camada prata não custa nada; perder o bronze custaria uma nova rodada de chamadas à API.
 
@@ -248,7 +257,7 @@ Executado uma vez: **61.338 scrobbles, 72 meses (ago/2020 → jul/2026)**.
 **Consequência do item 3:** o enriquecimento é `UPDATE` puro — ele **só alcança artistas/faixas que já existem** nas dimensões, ou seja, que já foram scrobblados no Last.fm. Um top track do Spotify nunca tocado fora dele não entra (**D3**), e o `INSERT` na fato com subselect sem correspondência grava a linha com FK **nula**, sem erro (**D4**).
 
 ### Falhas e reexecução
-`retries=2`, `retry_delay=1min` nas duas DAGs; falha persistente deixa a task vermelha na UI. As etapas são **idempotentes** (`ON CONFLICT DO NOTHING`/`DO UPDATE`), então reexecutar é seguro — não gera duplicata. E, no Last.fm, reexecutar também **recupera**: uma falha não faz a marca d'água avançar, então a janela perdida volta na execução seguinte, de qualquer tamanho. Uma exceção declarada: janela vazia é `skipped`, não `success` — reexecutar não ajudaria, e tratar como falha dispararia retries inúteis.
+`retries=2`, `retry_delay=1min` nas duas DAGs; falha persistente deixa a task vermelha na UI. As etapas são **idempotentes** (`ON CONFLICT DO NOTHING`/`DO UPDATE`), então reexecutar é seguro — não gera duplicata. E, no Last.fm, reexecutar também **recupera**: a carga é atômica (um `commit` só), então uma falha não deixa nada pela metade nem faz a marca d'água avançar, e a janela volta inteira na execução seguinte, de qualquer tamanho. Uma exceção declarada: janela vazia é `skipped`, não `success` — reexecutar não ajudaria, e tratar como falha dispararia retries inúteis.
 
 ---
 
@@ -324,7 +333,7 @@ projeto **diz** e o que ele **faz**. Ordenadas por relevância.
 | **D6** | **`na_biblioteca` nunca recebe `FALSE`.** Só é marcada `TRUE` para o que veio de `/me/tracks`; as demais ficam `NULL`. | `db/schema.sql` + `pipeline_spotify.py` | Coluna com três estados (`TRUE`/`NULL`/`FALSE`) onde a semântica pretendida é booleana. Um `WHERE na_biblioteca = FALSE` devolve zero linhas quando deveria devolver muitas. | `DEFAULT FALSE NOT NULL` na coluna, ou marcar explicitamente o complemento na carga. |
 | **D8** | **A fato do Spotify usa `date.today()` em vez da data lógica da execução.** | `dags/pipeline_spotify.py` (`carregar`) | Reexecutar uma run antiga carimba o `snapshot_date` de hoje, não o da execução original — a série histórica de "tops" fica errada nesse caso. | Usar `data_interval_start` / `logical_date` do contexto do Airflow. |
 
-**Notas menores** (não numeradas): o `requirements.txt` **não fixa nenhuma versão** — só nomes de pacote, sem pin, apesar de a §9 listar "fixar versões" como mitigação da volatilidade das APIs; a carga da DAG do Last.fm é linha a linha, aceitável para 200 linhas mas não para lotes grandes — por isso o `backfill.py` usa `execute_values`; há um `SELECT count(*)` sem `fetch` sobrando em `carregar()`; conexões não são fechadas explicitamente ao fim das tasks; e o `transform` do Spotify considera apenas o **primeiro** artista de cada faixa (faixas colaborativas perdem os demais).
+**Notas menores** (não numeradas): o `requirements.txt` **não fixa nenhuma versão** — só nomes de pacote, sem pin, apesar de a §9 listar "fixar versões" como mitigação da volatilidade das APIs; a carga da DAG do Last.fm é linha a linha, aceitável para 200 linhas mas não para lotes grandes — por isso o `backfill.py` usa `execute_values` (⚠️ se converter, manter o **`commit` único** no fim: a atomicidade é o que garante a recuperação, ver §6); há um `SELECT count(*)` sem `fetch` sobrando em `carregar()`; conexões não são fechadas explicitamente ao fim das tasks; e o `transform` do Spotify considera apenas o **primeiro** artista de cada faixa (faixas colaborativas perdem os demais).
 
 ---
 
@@ -364,7 +373,7 @@ O Last.fm é estável. O cuidado é o limite informal dos ToS (~5 req/s por IP);
 Com `raw` imutável + etapas idempotentes + marca d'água, reexecutar é seguro nos dois sentidos: não duplica e não deixa buraco — o que falhou volta na execução seguinte. A ressalva que resta é do Spotify, cujo `raw` ainda é sobrescrito (**D2**).
 
 **3. Qual o destino dos dados após a ingestão?**
-Destino imediato da ingestão: **MinIO, bucket `raw`** (JSON cru, bronze). Destino final: **Postgres analítico** (`fato_audicoes` + dimensões, ouro), passando por `processed` (Parquet, prata). A task de extração (`lastfm/extrair_para_minio.py`, replicada inline na DAG) se ocupa **apenas** do `raw` — ingestão não se mistura com transformação.
+Destino imediato da ingestão: **MinIO, bucket `raw`** (JSON cru, bronze). Destino final: **Postgres analítico** (`fato_audicoes` + dimensões, ouro), passando por `processed` (Parquet, prata). A task `extrair` da DAG se ocupa **apenas** do `raw` — ingestão não se mistura com transformação.
 
 **4. Com que frequência preciso acessar os dados?**
 Distinguir duas frequências: **ingestão** (DAG `@daily`) e **consulta** (warehouse, ad hoc). Após a carga histórica, o parâmetro `from` puxa só o que é novo desde a última execução — **carga incremental**, evitando rebaixar a API inteira a cada run.
@@ -375,7 +384,7 @@ O "desde a última execução" é o ponto delicado, e a implementação merece r
 Pequeno: cada scrobble são poucos bytes; o histórico todo fica na casa de milhares a dezenas de milhares de linhas. O que dimensiona a carga histórica é a paginação (`limit` máx. 200 → todo o histórico em poucas dezenas de chamadas). **Não há cenário de big data** — pandas + Parquet bastam; nada de Spark ou particionamento complexo.
 
 **6. Em que formato vêm os dados? O downstream lida com ele?**
-A API devolve **JSON** (`format=json`); a task de transformação (`lastfm/transformar.py`, replicada inline na DAG) converte para **Parquet** na camada `processed`. JSON é bom para ingestão (é o que a API fala, preserva tudo) e ruim para análise (verboso, sem tipos); Parquet — colunar, tipado, comprimido — alimenta o Postgres sem dor. Cada formato no seu trecho da jornada.
+A API devolve **JSON** (`format=json`); a task `transformar` da DAG converte para **Parquet** na camada `processed`. JSON é bom para ingestão (é o que a API fala, preserva tudo) e ruim para análise (verboso, sem tipos); Parquet — colunar, tipado, comprimido — alimenta o Postgres sem dor. Cada formato no seu trecho da jornada.
 
 **7. A origem está pronta para uso imediato? Por quanto tempo vale e o que a inutiliza?**
 Não totalmente: o JSON cru exige tratamento — descartar `nowplaying` (vem sem `date`), lidar com `mbid`/`album` vazios e achatar a estrutura aninhada. Quanto à validade: um scrobble de 2020 não muda, então o dado vale como registro permanente e a idade não o inutiliza. O que inutiliza é **duplicação** (incremento mal feito) ou **schema drift** (a API mudar um campo). Defesa: deduplicação na transformação e validação na carga (Fase 5, ainda pendente).

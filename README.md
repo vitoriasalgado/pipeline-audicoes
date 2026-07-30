@@ -55,23 +55,20 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 ```
 dags/        as duas DAGs do Airflow — é isto que roda em produção
-lastfm/      fonte 1 — cada etapa (extração, transformação, carga) como foi construída
+lastfm/      fonte 1 — scripts de host (consultas, carga manual)
 spotify/     fonte 2 — idem, para o Spotify (OAuth)
 db/          schema.sql — o esquema do warehouse (dimensões + fatos)
 scripts/     backfill.py — carga histórica pontual
-arquivo/     scripts das primeiras missões, aposentados (mantidos como registro)
+arquivo/     código aposentado, mantido como registro das missões
 docs/        PRD e documentação
 ```
 
-> **O que roda no Airflow são as DAGs em `dags/`.** As pastas por fonte (`lastfm/`, `spotify/`)
-> guardam cada etapa como ela foi escrita, missão a missão — as DAGs **replicam essa lógica
-> inline**, não importam esses módulos. São duas cópias, e a que executa é a de `dags/`.
-> Manter assim foi consequência do projeto ser construído passo a passo; extrair um módulo
-> compartilhado é um refactor em aberto.
+> **O que roda no Airflow são as DAGs em `dags/`.** A lógica de cada etapa vive inline nelas —
+> as DAGs não importam módulos de `lastfm/` nem de `spotify/`. Essas pastas guardam os scripts
+> que se roda à mão; quando um deles para de refletir o que a DAG faz, vai para `arquivo/`,
+> para não passar por etapa atual.
 
-> Os scripts de host são rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`).
-> Atenção: `lastfm/extrair_para_minio.py` e `lastfm/transformar.py` **não** rodam no host — eles
-> apontam para `minio:9000`, nome de serviço que só resolve dentro de um container.
+> Os scripts são rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`).
 
 ## Pré-requisitos
 
@@ -104,17 +101,25 @@ Serviços no ar:
 - **MinIO** (console do data lake) — http://localhost:9001 (`minioadmin` / `minioadmin`)
 - **PostgreSQL** (warehouse, camada ouro) — `localhost:5433` (`warehouse` / `warehouse`, banco `warehouse`)
 
-Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `descobrir_marca_dagua → extrair → transformar → carregar` — a ingestão é **incremental**: cada execução pergunta ao warehouse até onde já carregou e busca só o que falta, paginando se for muito. Se não houver nada novo, as tasks são puladas em vez de falhar.
-
-Há também uma segunda DAG, **`pipeline_spotify`** (`@weekly`), que faz o mesmo caminho para o Spotify — enriquecendo as dimensões e populando a `fato_top_spotify`. Ela requer as credenciais OAuth do Spotify no `.env` e a primeira autenticação feita localmente (o token fica em cache e é reaproveitado pelo container).
-
-Para carregar o **histórico completo** de uma vez (não só as faixas recentes), rode o script de carga histórica:
+### 1º — a carga histórica (obrigatória, uma vez)
 
 ```bash
 python scripts/backfill.py
 ```
 
-Ele pagina todo o histórico do Last.fm, grava cada página no bronze e faz a carga em lote no warehouse. É uma operação pontual — a DAG cuida do dia a dia daí em diante.
+Ele pagina todo o histórico do Last.fm, grava cada página no bronze e faz a carga em lote no warehouse.
+
+**Este passo vem antes da DAG, não depois.** A ingestão diária é incremental: ela começa perguntando ao warehouse qual o scrobble mais recente já carregado, e com a `fato_audicoes` vazia não há resposta — a primeira task falha de propósito, com uma mensagem pedindo o backfill. É uma decisão de desenho: melhor falhar dizendo o que falta do que ingerir silenciosamente uma janela arbitrária.
+
+É uma operação pontual e demorada (~305 chamadas à API, dezenas de minutos). A DAG cuida do dia a dia daí em diante.
+
+### 2º — a pipeline diária
+
+No Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `descobrir_marca_dagua → extrair → transformar → carregar` — a ingestão é **incremental**: cada execução pergunta ao warehouse até onde já carregou e busca só o que falta, paginando se for muito. Se não houver nada novo, as tasks são puladas em vez de falhar.
+
+### 3º (opcional) — a esteira do Spotify
+
+A segunda DAG, **`pipeline_spotify`** (`@weekly`), faz o mesmo caminho para o Spotify — enriquecendo as dimensões e populando a `fato_top_spotify`. Ela requer as credenciais OAuth do Spotify no `.env` e a primeira autenticação feita localmente (o token fica em cache e é reaproveitado pelo container).
 
 ## Roteiro (casado com as fases do guia)
 

@@ -65,14 +65,14 @@ def extrair_para_minio(ti, ts_nodash):
     )
     prefixo = f"lastfm/incremental/{ts_nodash}/"
 
-    # A primeira página já está em mãos (foi ela que nos disse quantas existem).
+   
     corpo = json.dumps(data, ensure_ascii=False).encode("utf-8")
     s3.put_object(Bucket="raw", Key=f"{prefixo}page_0001.json", Body=corpo)
     print(f"pagina 1/{total_paginas} gravada em {prefixo}", flush=True)
 
-    # As demais, uma por objeto — bronze imutável, como no backfill.
+ 
     for pagina in range(2, total_paginas + 1):
-        time.sleep(0.25)                       # parcimônia com a API do Last.fm
+        time.sleep(0.25)                       
         resp = requests.get(url, params=dict(params, page=pagina), timeout=30)
         resp.raise_for_status()
         pagina_data = resp.json()
@@ -120,7 +120,7 @@ def transformar(ti):
 
     df["scrobble_uts"] = pd.to_numeric(df["scrobbles_uts"], errors="coerce")
     df["data_hora"] = pd.to_datetime(df["scrobble_uts"], unit="s", errors="coerce")
-    df = df.dropna(subset=["scrobble_uts"]) 
+    df = df.dropna(subset=["scrobble_uts"])   # descarta o nowplaying (vem sem date)
     df = df.drop_duplicates(subset=["scrobble_uts", "faixa"])
     df = df.drop(columns=["scrobbles_uts"])
 
