@@ -59,7 +59,7 @@ x-airflow-common:
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'   # sem as DAGs de exemplo: só as duas do projeto na UI
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
@@ -118,6 +118,10 @@ services:
                                 # escolha um host DIFERENTE do Airflow pra não colidir
     volumes:
       - warehouse-db-volume:/var/lib/postgresql/data   # volume PRÓPRIO, nome novo (não o postgres-db-volume)
+      # Cria as tabelas na PRIMEIRA subida (o Postgres roda o que está aqui só
+      # quando o volume de dados está vazio). Em warehouse já povoado é ignorado
+      # — mudança de schema com dado dentro exige ALTER TABLE.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "warehouse"]   # mesmo user do POSTGRES_USER
       interval: 10s
@@ -319,6 +323,24 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - minio_data:/data
+
+  # Cria os buckets que a pipeline espera encontrar. Roda, cria e morre —
+  # sem isso, um clone novo quebra na primeira task com NoSuchBucket.
+  # `mc mb --ignore-existing` é idempotente: subir de novo não dá erro.
+  minio-init:
+    image: quay.io/minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do
+        echo 'esperando o MinIO subir...'; sleep 2;
+      done;
+      mc mb --ignore-existing local/raw;
+      mc mb --ignore-existing local/processed;
+      echo 'buckets raw e processed prontos';
+      "
+    restart: "no"
 
 volumes:
   postgres-db-volume:
