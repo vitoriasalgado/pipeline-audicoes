@@ -37,7 +37,7 @@ Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a p
 - ✅ **Transformação (prata)** — lê o JSON cru, limpa com pandas (descarta o `nowplaying`, tipa e deduplica) e salva em Parquet.
 - ✅ **Carga (ouro)** — modela um esquema estrela (`fato_audicoes` + dimensões) e carrega no data warehouse PostgreSQL, de forma idempotente.
 
-Além da ingestão incremental do dia a dia (a DAG), a **carga histórica completa** (`backfill.py`) já povoou o warehouse com ~6 anos de audições — a base para as análises.
+Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backfill.py`) já povoou o warehouse com ~6 anos de audições — a base para as análises.
 
 - ✅ **Análise (ouro)** — a pergunta que originou o projeto já é respondida por SQL sobre o esquema estrela: *"qual foi meu artista mais ouvido em cada mês"* (cruzando `fato_audicoes` com as dimensões, uma linha por mês ao longo dos anos).
 
@@ -49,7 +49,7 @@ Além da ingestão incremental do dia a dia (a DAG), a **carga histórica comple
 
 ## Documentação
 
-- [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos).
+- [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos). A partir da v0.3 ele descreve a pipeline *as-built*, e a **§9.1 lista as dívidas técnicas conhecidas** (D1–D8) — o que o projeto ainda não faz, e o encaminhamento de cada uma.
 
 ## Estrutura do projeto
 
@@ -91,7 +91,7 @@ Serviços no ar:
 - **MinIO** (console do data lake) — http://localhost:9001 (`minioadmin` / `minioadmin`)
 - **PostgreSQL** (warehouse, camada ouro) — `localhost:5433` (`warehouse` / `warehouse`, banco `warehouse`)
 
-Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `extrair → transformar → carregar` — a ingestão **incremental** do Last.fm (cada execução traz o que há de novo).
+Para rodar a pipeline: no Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `extrair → transformar → carregar` — cada execução busca os 200 scrobbles mais recentes e a carga é **idempotente**, então o que já estava no warehouse não entra de novo.
 
 Há também uma segunda DAG, **`pipeline_spotify`** (`@weekly`), que faz o mesmo caminho para o Spotify — enriquecendo as dimensões e populando a `fato_top_spotify`. Ela requer as credenciais OAuth do Spotify no `.env` e a primeira autenticação feita localmente (o token fica em cache e é reaproveitado pelo container).
 
