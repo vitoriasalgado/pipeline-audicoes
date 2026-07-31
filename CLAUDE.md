@@ -87,7 +87,7 @@ python lastfm/ler_parquet.py
 
 Estrutura das pastas: `dags/` (as **duas** DAGs — `pipeline_audicoes` e `pipeline_spotify`; o compose monta essa pasta, e é o que roda), `lastfm/` e `spotify/` (scripts de host por fonte), `db/` (schema.sql), `scripts/` (backfill), `arquivo/` (código aposentado mantido como registro — as primeiras missões e as versões de etapa que a DAG deixou para trás). Scripts sempre rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`), pra os caminhos relativos e o `.cache` do spotipy resolverem certo.
 
-`db/schema.sql` usa `CREATE TABLE IF NOT EXISTS` e é seguro de rodar de novo — mas por isso mesmo **editar o arquivo não altera tabelas que já existem**. Mudança de schema num warehouse já povoado (61 mil linhas) exige `ALTER TABLE`; manter os dois coerentes.
+`db/schema.sql` descreve o **estado final** e é aplicado pelo compose só na criação do volume — **editar o arquivo não altera tabelas que já existem**. Toda mudança de schema em base povoada precisa de um par: o `schema.sql` atualizado (para clone novo) **e** um script em `db/migracoes/` (para as bases que já existem), rodado à mão no host. Sem o segundo, o clone novo funciona e o warehouse de verdade quebra — foi o que quase aconteceu com os índices por `lower(nome)` (migração `001`).
 
 Infraestrutura (`docker-compose.yaml` — Airflow, MinIO, Postgres de metadados, warehouse e Redis):
 

@@ -25,7 +25,7 @@ def descobrir_marca_dagua():
     psycopg2_conn.close()
 
     return marca_dagua
-    
+
 
 def extrair_para_minio(ti, ts_nodash):
     marca_dagua = ti.xcom_pull(task_ids="descobrir_marca_dagua")
@@ -33,7 +33,7 @@ def extrair_para_minio(ti, ts_nodash):
 
     if marca_dagua is None:
         raise ValueError("fato_audicoes está vazia - rode o backfill antes")
-    
+
     api_key = os.environ['LASTFM_API_KEY']
     username = os.environ['LASTFM_USER']
 
@@ -65,14 +65,12 @@ def extrair_para_minio(ti, ts_nodash):
     )
     prefixo = f"lastfm/incremental/{ts_nodash}/"
 
-   
     corpo = json.dumps(data, ensure_ascii=False).encode("utf-8")
     s3.put_object(Bucket="raw", Key=f"{prefixo}page_0001.json", Body=corpo)
     print(f"pagina 1/{total_paginas} gravada em {prefixo}", flush=True)
 
- 
     for pagina in range(2, total_paginas + 1):
-        time.sleep(0.25)                       
+        time.sleep(0.25)   # o Last.fm pede poucas req/s
         resp = requests.get(url, params=dict(params, page=pagina), timeout=30)
         resp.raise_for_status()
         pagina_data = resp.json()
@@ -215,7 +213,7 @@ with DAG(
         "retry_delay": timedelta(minutes=1),
     },
     tags=["lastfm"],
-) as dag: 
+) as dag:
     marca_dagua_task = PythonOperator(
         task_id="descobrir_marca_dagua",
         python_callable=descobrir_marca_dagua,

@@ -1,7 +1,10 @@
 -- Esquema do warehouse (ouro): constelação com duas fatos e dimensões compartilhadas.
 -- Seguro de rodar de novo (IF NOT EXISTS).
 --
--- ⚠️  Descomentar os DROP apaga o histórico inteiro; só volta com scripts/backfill.py.
+-- ⚠️  Descomentar os DROP apaga ~62 mil scrobbles (6 anos). Só voltam rodando
+--     scripts/backfill.py: ~305 chamadas à API e dezenas de minutos.
+--
+-- Mudança de schema em base já povoada não sai daqui — ver db/migracoes/.
 --
 -- DROP TABLE IF EXISTS fato_top_spotify;
 -- DROP TABLE IF EXISTS fato_audicoes;

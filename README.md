@@ -57,7 +57,7 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 dags/        as duas DAGs do Airflow — é isto que roda em produção
 lastfm/      fonte 1 — scripts de host (consultas, carga manual)
 spotify/     fonte 2 — idem, para o Spotify (OAuth)
-db/          schema.sql — o esquema do warehouse (dimensões + fatos)
+db/          schema.sql (esquema do warehouse) + migracoes/ (mudanças em base já povoada)
 scripts/     backfill.py — carga histórica pontual
 arquivo/     código aposentado, mantido como registro das missões
 docs/        PRD e documentação
