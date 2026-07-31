@@ -39,7 +39,7 @@ Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a p
 
 Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backfill.py`) já povoou o warehouse com ~6 anos de audições — a base para as análises.
 
-- ✅ **Análise (ouro)** — a pergunta que originou o projeto já é respondida por SQL sobre o esquema estrela: *"qual foi meu artista mais ouvido em cada mês"* (cruzando `fato_audicoes` com as dimensões, uma linha por mês ao longo dos anos).
+- ✅ **Análise (ouro)** — o esquema estrela responde por si a pergunta que originou o projeto: *"qual foi meu artista mais ouvido em cada mês"* — `fato_audicoes` × `dim_faixa` × `dim_artista` × `dim_tempo`, uma linha por mês ao longo dos anos.
 
 **Segunda fonte — Spotify (via OAuth).** Uma segunda DAG (`pipeline_spotify`, semanal) traz meus *tops* e minha biblioteca do Spotify pelo mesmo caminho bronze → prata → ouro. No warehouse, isso vira um **esquema constelação**: uma nova fato (`fato_top_spotify`) que compartilha as mesmas dimensões da `fato_audicoes`, além de enriquecer artistas e faixas com os ids do Spotify — casando as duas fontes **por nome**. O token OAuth roda sozinho dentro do container (sem navegador), reutilizando o *refresh token* em cache.
 
