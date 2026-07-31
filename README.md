@@ -49,7 +49,7 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 ## Documentação
 
-- [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos). A partir da v0.3 ele descreve a pipeline *as-built*, e a **§9.1 lista as dívidas técnicas conhecidas** — o que o projeto ainda não faz, e o encaminhamento de cada uma. Dívida resolvida sai da lista.
+- [`docs/PRD_Pipeline_Audicoes.md`](docs/PRD_Pipeline_Audicoes.md) — o PRD completo (escopo, fontes, modelo de dados, DAGs, riscos). A partir da v0.3 ele descreve a pipeline *as-built*, e a **§9.1 lista as limitações conhecidas** — o que o projeto não faz, por escolha ou por limite da fonte.
 
 ## Estrutura do projeto
 

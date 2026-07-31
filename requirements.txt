@@ -1,7 +1,10 @@
-requests
-python-dotenv
-boto3
-pandas
-pyarrow
-psycopg2-binary
-spotipy
+# Ambiente do HOST (venv, Python 3.14) — scripts rodados à mão.
+# O Airflow instala outras versões, mais antigas, presas às constraints da
+# própria imagem: ver _PIP_ADDITIONAL_REQUIREMENTS no docker-compose.yaml.
+requests==2.34.2
+python-dotenv==1.2.2
+boto3==1.43.46
+pandas==3.0.3
+pyarrow==25.0.0
+psycopg2-binary==2.9.12
+spotipy==2.26.0

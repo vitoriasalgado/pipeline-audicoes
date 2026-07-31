@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS dim_faixa (
     album TEXT,
     artista_id INT REFERENCES dim_artista(id),
     spotify_track_id TEXT,
-    na_biblioteca BOOLEAN,
+    na_biblioteca BOOLEAN NOT NULL DEFAULT FALSE,
     biblioteca_added_at TIMESTAMP,
     UNIQUE(nome, artista_id)
 );

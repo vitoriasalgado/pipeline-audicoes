@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Este NÃO é um projeto de produção. É o **primeiro projeto de engenharia de dados de uma iniciante**, construído como aprendizado e portfólio, missão a missão. O trabalho é guiado por dois documentos que são a fonte da verdade:
 
-- `docs/PRD_Pipeline_Audicoes.md` — escopo completo, fontes/APIs, modelo de dados, DAGs, riscos. Da **v0.3** em diante é um documento *as-built*: descreve o que o código **faz**, não o que se pretendia fazer, e a **§9.1** lista as dívidas conhecidas — o que ele ainda não faz. Ao consertar uma dívida, atualizar o verbete dela.
+- `docs/PRD_Pipeline_Audicoes.md` — escopo completo, fontes/APIs, modelo de dados, DAGs, riscos. Da **v0.3** em diante é um documento *as-built*: descreve o que o código **faz**, não o que se pretendia fazer, e a **§9.1** lista as limitações conhecidas — o que ele não faz, por escolha ou por limite da fonte. As oito dívidas levantadas na v0.3 foram todas fechadas; se aparecer uma nova, registrar ali com o encaminhamento e remover ao quitar.
 - `docs/roteiro_post.md` — passo a passo (**Missão 0 → 18**), com o código de referência de cada etapa e um bloco "✅ Você deve saber explicar" por missão. **Local/gitignored** (não versionado): existe só na máquina da usuária, não no repo público.
 
 ### Como atuar aqui: mentor, não implementador
@@ -46,7 +46,7 @@ Last.fm API ──► raw/ (JSON, bronze) ──► processed/ (Parquet, prata) 
 Princípios que atravessam todo o código e devem ser respeitados nas decisões:
 
 - **Camadas medalhão separadas por responsabilidade:** a extração só escreve o `raw` (JSON cru) e NÃO se mistura com transformação; a transformação lê `raw` e escreve Parquet em `processed`; a carga modela e carrega o Postgres. A lógica de cada etapa vive **inline dentro das DAGs** — elas não importam nada de `lastfm/` nem de `spotify/`. **O que roda no Airflow é sempre o código em `dags/`.** As pastas por fonte guardam scripts de host (rodados à mão, com `localhost`) e o registro de como cada etapa foi construída; quando um deles deixa de refletir a DAG, vai para `arquivo/` em vez de ficar dando a impressão de ser a etapa atual.
-- **`raw` é imutável e é a fonte única** — vale para o Last.fm: o `backfill.py` grava uma página por objeto, e a DAG diária grava uma pasta por execução (`lastfm/incremental/<ts_nodash>/page_NNNN.json`). A camada `processed` é exceção deliberada: é derivada, regenerável, e a marca d'água garante o reprocessamento. **Ainda não vale para o Spotify**, que usa chaves fixas — dívida **D2** (§9.1 do PRD).
+- **`raw` é imutável e é a fonte única** — nas duas esteiras, uma pasta por execução: `lastfm/incremental/<ts_nodash>/page_NNNN.json` e `spotify/<ts_nodash>/`. No Spotify isso é ainda mais crítico: cada coleta é o retrato do gosto naquela semana, e a API não devolve retrato passado. A camada `processed` é exceção deliberada — derivada, regenerável, e a marca d'água garante o reprocessamento.
 - **Idempotência e carga incremental** são as duas decisões que definem a corretude do núcleo, e **as duas estão implementadas** no Last.fm. Idempotência: filtrar `nowplaying` (vem sem `date`) e `UNIQUE (scrobble_uts, faixa_id)` com `ON CONFLICT DO NOTHING`. Incrementalidade: a task `descobrir_marca_dagua` lê `max(scrobble_uts)` da `fato_audicoes` e passa por XCom para a `extrair`, que usa como `from` (inclusivo, daí o `+1`) e **pagina** por `@attr.totalPages`. A marca d'água vem do warehouse de propósito — é derivada do dado, então nunca dessincroniza; não trocar por Airflow Variable ou arquivo de controle.
 - **Casos de borda da extração incremental** já tratados, não reintroduzir: janela vazia → `AirflowSkipException` **antes** de gravar no MinIO (senão sobrescreve com vazio); `max()` de tabela vazia → `None`, falha explícita pedindo o backfill; um único resultado → o Last.fm devolve `track` como objeto, não lista.
 - **Modelo estrela/constelação:** duas fatos (`fato_audicoes` do Last.fm, `fato_top_spotify`) compartilhando `dim_artista`, `dim_faixa`, `dim_tempo`. `spotify_*_id` e `mbid` são atributos de apoio e podem vir vazios.
@@ -56,7 +56,9 @@ Princípios que atravessam todo o código e devem ser respeitados nas decisões:
 
 ## Stack e anti-padrões
 
-Python **3.14.6** (venv local) · Airflow **2.10.5** · PostgreSQL **13** · MinIO. Bibliotecas: `requests`, `boto3`, `pandas`, `pyarrow`, `psycopg2-binary`, `spotipy`, `python-dotenv` (sem pin de versão — ver §9.1 do PRD).
+Python **3.14.6** (venv local) · Airflow **2.10.5** (Python 3.12 na imagem) · PostgreSQL **13** · MinIO. Bibliotecas: `requests`, `boto3`, `pandas`, `pyarrow`, `psycopg2-binary`, `spotipy`, `python-dotenv`.
+
+⚠️ **Dois ambientes, versões diferentes.** O host usa o `requirements.txt`; o Airflow usa o `_PIP_ADDITIONAL_REQUIREMENTS` do compose, preso às constraints da imagem — **pandas 3.0 no host, 2.1 no container**. Os dois estão fixados, mas não são o mesmo conjunto: ao depurar diferença de comportamento entre script e DAG, checar isso antes de procurar bug no código.
 
 **Não introduzir** Spark, dbt, ORM (SQLAlchemy), Kafka ou particionamento complexo. O volume é de milhares a dezenas de milhares de linhas: **pandas + Parquet + SQL puro bastam**, e a escolha é deliberada (PRD §11, resposta 5). SQL é escrito à mão com `psycopg2` — faz parte do aprendizado. Sugerir ferramenta nova só se a usuária pedir.
 
@@ -108,6 +110,8 @@ O warehouse tem **~62 mil scrobbles** (ago/2020 →, e crescendo a cada execuç�
 
 - **Nunca descomentar os `DROP TABLE` do `db/schema.sql`.** Apagam o warehouse inteiro.
 - **Schema já povoado muda com `ALTER TABLE`**, não editando o `schema.sql` (que é `IF NOT EXISTS` e ignora tabelas existentes).
+- **`date.today()` no `snapshot_date` do Spotify é deliberado — não trocar por `logical_date`.** Parece antipattern de Airflow e não é: o `/me/top` não viaja no tempo, sempre devolve o top calculado agora. Carimbar a data lógica de uma execução reprocessada afirmaria algo que a fonte não sustenta. A data é capturada na `extrair` e viaja por XCom até a carga, para não depender de as duas rodarem no mesmo dia. Motivo completo na §6 do PRD.
+- **`dim_faixa.na_biblioteca` é `NOT NULL DEFAULT FALSE` e reflete a última coleta.** A carga **zera a coluna** e remarca só o que veio do Spotify — é o que faz faixa removida da biblioteca voltar a `FALSE`. Esse zerar só é seguro porque a biblioteca é coletada inteira (paginada); com coleta truncada, ele apagaria a marca do que ficou de fora.
 - **O `commit()` único no fim de `carregar()` é estrutural.** É a atomicidade dele que garante a recuperação: falha no meio → nada entra → a marca d'água não avança → a janela volta inteira. A marca d'água é `max(scrobble_uts)`, **nível máximo**, não "contíguo até aqui" — ela não protege contra buraco no meio da janela. Se converter a carga para `execute_values` (nota da §9.1), **manter um commit só**; commit por lote reintroduz estado parcial e a garantia cai em silêncio.
 - **`scripts/backfill.py` não é comando casual:** ~305 chamadas à API do Last.fm e dezenas de minutos.
 - **Não reescrever histórico do git.** Já houve um episódio de `filter-branch` que deixou um contribuidor fantasma no painel do GitHub — irreversível pelo lado do repo.

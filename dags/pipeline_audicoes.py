@@ -70,7 +70,7 @@ def extrair_para_minio(ti, ts_nodash):
     print(f"pagina 1/{total_paginas} gravada em {prefixo}", flush=True)
 
     for pagina in range(2, total_paginas + 1):
-        time.sleep(0.25)   # o Last.fm pede poucas req/s
+        time.sleep(0.25)
         resp = requests.get(url, params=dict(params, page=pagina), timeout=30)
         resp.raise_for_status()
         pagina_data = resp.json()
@@ -163,7 +163,6 @@ def carregar():
 
     for index, row in df_check.iterrows():
         cur.execute(
-            # lower(nome): 'Zayn' e 'ZAYN' são o mesmo artista
             "INSERT INTO dim_artista (nome, mbid) VALUES (%s, %s) ON CONFLICT (lower(nome)) DO UPDATE SET mbid = EXCLUDED.mbid " \
             "RETURNING id",
             (row["artista"], row["artista_mbid"]),

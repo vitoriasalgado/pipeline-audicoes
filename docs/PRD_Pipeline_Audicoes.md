@@ -32,7 +32,7 @@ Segue a arquitetura **medalhão** (bronze → prata → ouro) do documento de st
 - Entregar consultas SQL analíticas, incluindo o cruzamento Last.fm × Spotify.
 
 > Esta lista é o escopo **pretendido**, mantida como escrita no planejamento. O quanto cada
-> item está de fato atendido está na **§7**; onde a prática ainda diverge, na **§9.1**.
+> item está de fato atendido está na **§7**, e o que fica de fora, na **§9.1**.
 
 ### Não-objetivos (fora do escopo atual)
 - Tasks de **qualidade de dados** dedicadas (planejado para a Fase 5, depois do núcleo).
@@ -191,7 +191,8 @@ Implementado em [`db/schema.sql`](../db/schema.sql). O que segue reflete o schem
 
 **Dimensões (enriquecidas com Spotify)**
 - `dim_artista` (`id`, `nome` **UNIQUE**, `mbid`, `spotify_artist_id`)
-- `dim_faixa` (`id`, `nome`, `album`, `artista_id`, `spotify_track_id`, `na_biblioteca`, `biblioteca_added_at`, **UNIQUE (`nome`, `artista_id`)**)
+- `dim_faixa` (`id`, `nome`, `album`, `artista_id`, `spotify_track_id`, `na_biblioteca` **`NOT NULL DEFAULT FALSE`**, `biblioteca_added_at`, **UNIQUE (`nome`, `artista_id`)**)
+  - `na_biblioteca` é booleana de verdade, com dois estados. Ela reflete a biblioteca do Spotify **no momento da última coleta**: a carga zera a coluna e remarca `TRUE` apenas o que veio na coleta atual, então faixa removida da biblioteca volta a `FALSE`. Sem isso, `WHERE na_biblioteca = FALSE` devolveria zero linhas, porque em SQL `NULL` não é `FALSE`.
 - `dim_tempo` (`id`, `data`, `hora`, `ano`, `mes`, `dia`, `dia_semana`, **UNIQUE (`data`, `hora`)**)
 
 > Grão da `dim_tempo`: **hora cheia** (`UNIQUE (data, hora)`), não o instante do scrobble. O minuto/segundo exato vive só no `fato_audicoes.scrobble_uts`. Isso basta para as análises por hora/dia/mês previstas na §1.
@@ -218,8 +219,9 @@ Implementado em [`db/schema.sql`](../db/schema.sql). O que segue reflete o schem
 ## 6. Pipeline / fluxo ETL
 
 Duas esteiras, cadências diferentes, mesmas camadas medalhão. **Esta seção descreve o
-código como ele está hoje**; onde o comportamento fica aquém do pretendido, há uma
-referência à dívida correspondente na §9.1.
+código como ele está hoje**, incluindo as decisões que parecem erro e não são — elas
+vêm com o motivo, para não serem "consertadas" depois. O que o projeto não faz está
+na §9.1.
 
 ### DAG `pipeline_audicoes` (Last.fm — diária)
 [`dags/pipeline_audicoes.py`](../dags/pipeline_audicoes.py). Gatilho `@daily`, `catchup=False`, `retries=2`, `retry_delay=1min`. **Quatro** tasks em sequência: `descobrir_marca_dagua → extrair → transformar → carregar`.
@@ -254,11 +256,15 @@ Executado uma vez, em jul/2026: **61.338 scrobbles em 72 meses (ago/2020 →)**.
 ### DAG `pipeline_spotify` (Spotify — semanal)
 [`dags/pipeline_spotify.py`](../dags/pipeline_spotify.py). Gatilho `@weekly` (o "top" é computado em janelas de semanas/meses; não faz sentido diário), `catchup=False`, mesmos retries. **Três** tasks: `extrair → transformar → carregar` — não há marca d'água aqui, porque o "top" do Spotify é um retrato do momento, não um histórico de eventos: não existe "o que falta buscar", cada coleta pega o estado atual inteiro. OAuth via `spotipy` com `cache_path=/opt/airflow/.cache` e `open_browser=False` — o container não abre navegador, então reutiliza o `refresh_token` do cache ou falha limpo.
 
-1. **Extrair → `raw`:** para cada um dos três `time_range`, chama `/me/top/tracks` e `/me/top/artists` (`limit=50`); mais `/me/tracks` (`limit=50`, **sem `offset`** → biblioteca truncada, ver **D5**). Sete JSONs em `raw/spotify/`, chaves fixas.
-2. **Transformar → `processed`:** normaliza em três Parquets — `top_tracks.parquet` (posição via `enumerate`, `time_range`, faixa, artista, álbum, ids), `top_artists.parquet` e `saved_tracks.parquet` (com `added_at`). Só o **primeiro artista** de cada faixa é considerado.
-3. **Carregar/enriquecer → `analytics`:** para cada item, faz **upsert** em `dim_artista` e `dim_faixa` (`ON CONFLICT` nos índices por `lower(nome)`, ver §5) e usa o **id devolvido pelo upsert** como FK ao inserir em `fato_top_spotify`, com `ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING`. Um único `commit` no fim.
+1. **Extrair → `raw`:** para cada um dos três `time_range`, chama `/me/top/tracks` e `/me/top/artists` (`limit=50`); mais `/me/tracks`, **paginado** seguindo o campo `next` até esgotar a biblioteca (~1.500 faixas, ~32 páginas). Grava tudo em `raw/spotify/<ts_nodash>/` — pasta por execução, uma página por objeto — e devolve por XCom o prefixo **e a data da coleta**.
+2. **Transformar → `processed`:** recebe o prefixo pelo XCom, lê os seis JSONs de top e concatena as páginas da biblioteca, e normaliza em três Parquets — `top_tracks.parquet` (posição via `enumerate`, `time_range`, faixa, artista, álbum, ids), `top_artists.parquet` e `saved_tracks.parquet` (com `added_at`). Só o **primeiro artista** de cada faixa é considerado.
+3. **Carregar/enriquecer → `analytics`:** para cada item, faz **upsert** em `dim_artista` e `dim_faixa` (`ON CONFLICT` nos índices por `lower(nome)`, ver §5) e usa o **id devolvido pelo upsert** como FK ao inserir em `fato_top_spotify`, com `ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING`. Antes de marcar a biblioteca, **zera `na_biblioteca`** e remarca só o que veio na coleta. Um único `commit` no fim, então ninguém enxerga o estado zerado.
 
 **Por que upsert e não `UPDATE`.** A versão anterior fazia `UPDATE … WHERE nome = %s`: alterava quem já existia e **descartava em silêncio** quem não existia — ou seja, todo artista ou faixa que aparece no top do Spotify mas nunca foi scrobblado no Last.fm. Pior, a linha correspondente na fato era gravada mesmo assim, com FK **nula**, porque o id vinha de um subselect que não casava. Com o upsert, o item entra na dimensão e a FK vem do id retornado — a linha órfã deixa de ser possível por construção, sem precisar de um `CHECK` para barrá-la depois.
+
+**Por que a data da coleta vem da extração, e não de `date.today()` na carga.** O `snapshot_date` responde "quando esta foto foi tirada", e quem tira a foto é a `extrair`. Carimbar na carga funcionaria enquanto as duas rodassem na mesma janela, mas reexecutar só o `carregar` dias depois releria o Parquet da coleta antiga e gravaria a data de hoje. Passando o instante por XCom, a data viaja junto com o dado.
+
+**Por que não a data lógica do Airflow.** Seria o reflexo natural — `logical_date`/`data_interval_start` é o idiomático em DAGs — mas aqui estaria errado. O `/me/top` do Spotify **não viaja no tempo**: não há parâmetro para pedir o top de uma data passada, a API sempre devolve o que está calculado agora. Reprocessar a execução de 15/07 traz o top de hoje; carimbá-lo como 15/07 seria gravar uma afirmação que a fonte não sustenta. Como a DAG usa `catchup=False`, o Airflow nunca refaz execução antiga sozinho — toda "execução passada" é reprocessamento manual, e nele a API responde com dados de agora, sem exceção. **Não trocar por `logical_date`.**
 
 E esse dado tem valor próprio: *"faixas que o Spotify diz que eu mais ouço e que nunca apareceram no meu histórico do Last.fm"* é uma resposta analítica, não um erro — e alimenta o cruzamento entre fontes.
 
@@ -277,8 +283,8 @@ Legenda: ✅ atendido · ⚠️ atendido parcialmente · ⏳ não iniciado.
 |---|---|---|
 | **RF1** | Ingerir scrobbles do Last.fm incrementalmente (janela diária) | ✅ marca d'água (`max(scrobble_uts)`) como `from`, com paginação |
 | **RF2** | Suportar carga histórica completa do Last.fm (backfill) | ✅ `scripts/backfill.py`; 6 anos de histórico carregados |
-| **RF3** | Ingerir do Spotify (OAuth): top tracks/artists (3 time_ranges) e biblioteca salva | ⚠️ tops completos; biblioteca truncada em 50 — **D5** |
-| **RF4** | Persistir dado cru (`raw`) e tratado em Parquet (`processed`) para ambas as fontes | ⚠️ `raw` imutável por execução no Last.fm; no Spotify as chaves ainda são fixas |
+| **RF3** | Ingerir do Spotify (OAuth): top tracks/artists (3 time_ranges) e biblioteca salva | ✅ tops completos; biblioteca paginada por inteiro (~1.500 faixas) |
+| **RF4** | Persistir dado cru (`raw`) e tratado em Parquet (`processed`) para ambas as fontes | ✅ `raw` imutável por execução nas duas esteiras; `processed` sobrescrito de propósito (§6) |
 | **RF5** | Carregar esquema constelação: `fato_audicoes`, `fato_top_spotify` e dimensões compartilhadas | ✅ `db/schema.sql`, ambas as fatos populadas |
 | **RF6** | Enriquecer dimensões com ids e biblioteca do Spotify | ✅ upsert: o que só existe no Spotify entra na dimensão em vez de ser descartado |
 | **RF7** | Garantir idempotência (reprocessar não duplica) | ✅ `UNIQUE` + `ON CONFLICT` em todas as tabelas |
@@ -316,7 +322,7 @@ Legenda: ✅ atendido · ⚠️ atendido parcialmente · ⏳ não iniciado.
 |---|---|
 | **Spotify Premium obrigatório** | premissa declarada; sem Premium, o escopo Spotify é removido e o projeto segue só com Last.fm |
 | Complexidade do OAuth do Spotify | usar `spotipy` (cuida de fluxo, cache e refresh); scopes mínimos |
-| **Volatilidade da API do Spotify** (mudanças nov/2024 e fev/2026) | usar só endpoints de personalização do usuário; não depender de popularidade/recommendations. *Obs.: "fixar versões" constava aqui como mitigação, mas o `requirements.txt` não tem nenhum pin — a mitigação não existe hoje (ver §9.1, menores).* |
+| **Volatilidade da API do Spotify** (mudanças nov/2024 e fev/2026) | usar só endpoints de personalização do usuário; não depender de popularidade/recommendations; **versões fixadas** no `requirements.txt` e no compose (conjuntos diferentes — §9.1) |
 | Limite informal do Last.fm | paginação educada, poucas req/s |
 | Extração não-incremental (gap maior que 200 scrobbles não entra no carregamento automático) | **resolvido** — marca d'água + paginação (§6); qualquer tamanho de intervalo entra na execução seguinte |
 | Chaves/segredos expostos | `.env` + `.gitignore` |
@@ -324,20 +330,28 @@ Legenda: ✅ atendido · ⚠️ atendido parcialmente · ⏳ não iniciado.
 | Casamento de faixas entre fontes | resolver por nome (chave de negócio); ids como apoio |
 | Subir o Airflow (parte sensível) | `docker-compose` fixado em versão; fallback no compose oficial |
 
-### 9.1 Dívidas técnicas conhecidas
+### 9.1 Limitações conhecidas
 
-Levantadas na revisão v0.3, comparando este PRD com o código de fato existente.
-Nenhuma delas impede o sistema de rodar; todas são divergências entre o que o
-projeto **diz** e o que ele **faz**. Ordenadas por relevância.
+Esta seção começou na revisão v0.3 como uma lista de **dívidas** — oito divergências
+entre o que este documento afirmava e o que o código fazia (`D1`–`D8`), levantadas
+comparando um com o outro. Todas foram fechadas: sete por código, e a última
+(`date.today()` no `snapshot_date`) reclassificada como decisão deliberada, com o
+motivo registrado na §6.
 
-| # | Dívida | Onde | Impacto | Encaminhamento |
-|---|---|---|---|---|
-| **D2** | **O `raw` do Spotify não é imutável.** As sete chaves (`spotify/top_*_<time_range>.json`, `spotify/saved_tracks.json`) são fixas e sobrescritas a cada execução semanal. | `dags/pipeline_spotify.py` (`extrair`) | Cada coleta é um **retrato** do gosto naquela semana; sobrescrever apaga o retrato anterior. A `fato_top_spotify` preserva a série por `snapshot_date`, mas o bronze correspondente não existe mais — não há como reprocessar uma semana passada. | Particionar por execução, como já é feito no Last.fm (`spotify/<ts_nodash>/…`). |
-| **D5** | **A biblioteca do Spotify está truncada em 50 faixas.** `/me/tracks` é chamado com `limit=50` e sem `offset`. | `dags/pipeline_spotify.py` (`extrair`) | `dim_faixa.na_biblioteca` só é verdadeiro para as 50 faixas salvas mais recentes; o resto da biblioteca é invisível. | Paginar por `offset` até esgotar (o campo `total` da resposta diz quantas são). |
-| **D6** | **`na_biblioteca` nunca recebe `FALSE`.** Só é marcada `TRUE` para o que veio de `/me/tracks`; as demais ficam `NULL`. | `db/schema.sql` + `pipeline_spotify.py` | Coluna com três estados (`TRUE`/`NULL`/`FALSE`) onde a semântica pretendida é booleana. Um `WHERE na_biblioteca = FALSE` devolve zero linhas quando deveria devolver muitas. | `DEFAULT FALSE NOT NULL` na coluna, ou marcar explicitamente o complemento na carga. |
-| **D8** | **A fato do Spotify usa `date.today()` em vez da data lógica da execução.** | `dags/pipeline_spotify.py` (`carregar`) | Reexecutar uma run antiga carimba o `snapshot_date` de hoje, não o da execução original — a série histórica de "tops" fica errada nesse caso. | Usar `data_interval_start` / `logical_date` do contexto do Airflow. |
+O que resta abaixo não é dívida — é o que este projeto **não faz**, por escolha ou por
+limite da fonte. Não há plano de ação associado.
 
-**Notas menores** (não numeradas): o `requirements.txt` **não fixa nenhuma versão** — só nomes de pacote, sem pin, apesar de a §9 listar "fixar versões" como mitigação da volatilidade das APIs; a carga da DAG do Last.fm é linha a linha, aceitável para 200 linhas mas não para lotes grandes — por isso o `backfill.py` usa `execute_values` (⚠️ se converter, manter o **`commit` único** no fim: a atomicidade é o que garante a recuperação, ver §6); há um `SELECT count(*)` sem `fetch` sobrando em `carregar()`; conexões não são fechadas explicitamente ao fim das tasks; e o `transform` do Spotify considera apenas o **primeiro** artista de cada faixa (faixas colaborativas perdem os demais).
+**Por decisão, registrada com o motivo:**
+- **Sufixos de versão não são normalizados** (`- 2014 Remaster`, `- Live At …`). São ~184 faixas. Ver §5.
+- **A camada `processed` é sobrescrita**, não versionada por execução. Ver §6.
+- **O `snapshot_date` do Spotify é a data da coleta**, não a data lógica da execução. Ver §6.
+
+**Imperfeições aceitas:**
+- **O host e o Airflow rodam versões diferentes das mesmas bibliotecas.** Ambos estão fixados (`requirements.txt` e `_PIP_ADDITIONAL_REQUIREMENTS` no compose), mas em conjuntos distintos: a imagem do Airflow 2.10.5 traz constraints próprias e resolve para versões mais antigas — no pandas, **3.0 no host contra 2.1 no container**, uma *major* de diferença. Na prática, código testado à mão pode se comportar diferente dentro da DAG. Alinhar exigiria ou forçar o pandas 3 na imagem (que o Airflow 2.10 não suporta) ou rebaixar o host a uma versão sem wheel para Python 3.14 — nenhuma das duas é barata, então a divergência fica registrada em vez de resolvida.
+- A carga da DAG do Last.fm é **linha a linha** — aceitável para as centenas de linhas de uma janela diária, não para lotes grandes; por isso o `backfill.py` usa `execute_values`. ⚠️ Se converter, manter o **`commit` único** no fim: a atomicidade é o que garante a recuperação (§6).
+- Sobra um `SELECT count(*)` sem `fetch` em `carregar()`, no Last.fm.
+- O `transformar` do Spotify considera apenas o **primeiro artista** de cada faixa — faixas colaborativas perdem os demais.
+- **Não há tasks de qualidade de dados** entre as etapas (RF8, planejado para a Fase 5).
 
 ---
 
@@ -353,10 +367,10 @@ projeto **diz** e o que ele **faz**. Ordenadas por relevância.
 | 5 — Qualidade | tasks de validação | ⏳ |
 | 6 — Portfólio | README, diagrama, este PRD, post | ✅ dois posts publicados |
 
-**Trilha paralela — quitar as dívidas da §9.1.** Não faz parte das fases do guia e não
-tem entrega de portfólio associada; é manutenção. Ordem sugerida: D2 → D5 + D6 (juntas, as
-duas são da biblioteca do Spotify) → D8. Dívida quitada sai desta seção; quando a lista
-esvaziar, a seção sai com ela.
+**Trilha paralela — as dívidas da §9.1: concluída.** Não fazia parte das fases do guia e
+não tinha entrega de portfólio associada; era manutenção. As oito divergências levantadas
+na revisão v0.3 foram fechadas, e o que restou na §9.1 são limitações declaradas, não
+pendências. Duas migrações versionadas ficaram do processo, em `db/migracoes/`.
 
 ---
 
@@ -367,9 +381,11 @@ esvaziar, a seção sai com ela.
 **1. Quais são os casos de uso? Dá para reutilizar os dados em vez de versioná-los?**
 Casos de uso: análise do histórico (artista/faixa mais ouvidos, padrões por hora/dia/mês, evolução do gosto) e o cruzamento Last.fm × Spotify. A reutilização vem do modelo medalhão: há uma origem (`raw`) e camadas derivadas a partir dela, não N cópias do mesmo dado.
 
-Isso é verdade na esteira do Last.fm: tanto o `backfill.py` (uma página por objeto em `lastfm/backfill/`) quanto a DAG diária (uma pasta por execução em `lastfm/incremental/<ts_nodash>/`) nunca sobrescrevem. Qualquer análise nova reprocessa esses objetos sem rechamar a API. A camada `processed` é a exceção deliberada — ela é derivada e regenerável, e a marca d'água garante o reprocessamento (§6).
+Isso vale nas duas esteiras: o `backfill.py` (uma página por objeto em `lastfm/backfill/`), a DAG diária (`lastfm/incremental/<ts_nodash>/`) e a semanal do Spotify (`spotify/<ts_nodash>/`) gravam pasta por execução e nunca sobrescrevem. Qualquer análise nova reprocessa esses objetos sem rechamar a API.
 
-**Onde ainda não vale:** na esteira do Spotify, que grava em sete chaves fixas e sobrescreve o retrato da semana anterior. Dívida **D2**.
+No Spotify isso importa por um motivo próprio: cada coleta é um **retrato** do gosto naquela semana, e a fonte não permite pedir o retrato de uma semana passada. Sobrescrever apagaria o único registro que existe dele.
+
+A camada `processed` é a exceção deliberada — derivada, regenerável, e a marca d'água garante o reprocessamento (§6).
 
 **2. A fonte gera/coleta de forma confiável? O dado está disponível quando preciso?**
 O Last.fm é estável. O cuidado é o limite informal dos ToS (~5 req/s por IP); a mitigação é `sleep` entre páginas e os `retries` da task no Airflow (§6). Em lote diário isso não é gargalo. Aqui "disponível quando preciso" depende mais do **Airflow estar no ar** do que da API.
@@ -393,7 +409,7 @@ A API devolve **JSON** (`format=json`); a task `transformar` da DAG converte par
 **7. A origem está pronta para uso imediato? Por quanto tempo vale e o que a inutiliza?**
 Não totalmente: o JSON cru exige tratamento — descartar `nowplaying` (vem sem `date`), lidar com `mbid`/`album` vazios e achatar a estrutura aninhada. Quanto à validade: um scrobble de 2020 não muda, então o dado vale como registro permanente e a idade não o inutiliza. O que inutiliza é **duplicação** (incremento mal feito) ou **schema drift** (a API mudar um campo). Defesa: deduplicação na transformação e validação na carga (Fase 5, ainda pendente).
 
-**Ressalva:** "o `raw` é um histórico imutável" vale para o Last.fm (backfill e DAG diária), não para o Spotify — ver resposta 1 e a dívida **D2**.
+**Ressalva:** "imutável" vale para o `raw` das duas esteiras, não para o `processed`, que é derivado e sobrescrito de propósito — ver resposta 1 e §6.
 
 **8. Sendo streaming, precisa transformar em trânsito?**
 **Não se aplica.** A fonte é **batch** (um lote da API por janela), não um fluxo contínuo. O modelo é **ETL/ELT em lote**: transforma-se **em repouso** (camada prata), não em trânsito. Transformação em trânsito (Kafka Streams, Flink) é para streaming de verdade — fora do escopo.

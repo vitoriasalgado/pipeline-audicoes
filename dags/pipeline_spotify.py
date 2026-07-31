@@ -6,7 +6,7 @@ from airflow import DAG # type: ignore
 from airflow.operators.python import PythonOperator # type: ignore
 from spotipy.oauth2 import SpotifyOAuth
 
-def extrair():
+def extrair(ts_nodash):
 
     auth_manager = SpotifyOAuth(
         client_id=os.environ["SPOTIFY_CLIENT_ID"],
@@ -17,11 +17,6 @@ def extrair():
         open_browser=False,   # sem navegador no container: usa o cache ou falha limpo
     )
 
-    def salvar(data, key):
-        corpo = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        s3.put_object(Bucket="raw", Key=key, Body=corpo)
-        print(f"gravado: {key}")
-
     sp = spotipy.Spotify(auth_manager=auth_manager) #type: ignore
 
     s3 = boto3.client(
@@ -31,16 +26,31 @@ def extrair():
         aws_secret_access_key="minioadmin",
     )
 
-    for tr in ["short_term", "medium_term", "long_term"]:
-        tracks = sp.current_user_top_tracks(limit=50, time_range=tr)
-        salvar(tracks, f"spotify/top_tracks_{tr}.json")
-        artists = sp.current_user_top_artists(limit=50, time_range=tr)
-        salvar(artists, f"spotify/top_artists_{tr}.json")
+    prefixo = f"spotify/{ts_nodash}/"
 
-    saved = sp.current_user_saved_tracks(limit=50)
-    salvar(saved, "spotify/saved_tracks.json")
-    
-def transformar():
+    def salvar(data, nome):
+        corpo = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        s3.put_object(Bucket="raw", Key=f"{prefixo}{nome}", Body=corpo)
+        print(f"gravado: {prefixo}{nome}", flush=True)
+
+    for tr in ["short_term", "medium_term", "long_term"]:
+        salvar(sp.current_user_top_tracks(limit=50, time_range=tr), f"top_tracks_{tr}.json")
+        salvar(sp.current_user_top_artists(limit=50, time_range=tr), f"top_artists_{tr}.json")
+
+    pagina = 1
+    resposta = sp.current_user_saved_tracks(limit=50)
+    total = resposta["total"]
+    salvar(resposta, f"saved_tracks_{pagina:04d}.json")
+    while resposta["next"]:
+        resposta = sp.next(resposta)
+        pagina += 1
+        salvar(resposta, f"saved_tracks_{pagina:04d}.json")
+    print(f"biblioteca: {total} faixas em {pagina} pagina(s)", flush=True)
+
+    return {"prefixo": prefixo, "coletado_em": date.today().isoformat()}
+
+
+def transformar(ti):
 
     s3 = boto3.client(
         "s3",
@@ -49,11 +59,16 @@ def transformar():
         aws_secret_access_key="minioadmin",
     )
 
+    prefixo = ti.xcom_pull(task_ids="extrair")["prefixo"]
+    print(f"lendo de {prefixo}", flush=True)
+
+    def ler_json(nome):
+        conteudo = s3.get_object(Bucket="raw", Key=f"{prefixo}{nome}")["Body"].read()
+        return json.loads(conteudo.decode("utf-8"))
+
     linhas = []
     for tr in ["short_term", "medium_term", "long_term"]:
-        resposta = s3.get_object(Bucket="raw", Key=f"spotify/top_tracks_{tr}.json")
-        conteudo = resposta["Body"].read().decode("utf-8")
-        data = json.loads(conteudo)
+        data = ler_json(f"top_tracks_{tr}.json")
 
         for posicao, item in enumerate(data["items"], start=1):
             linhas.append({
@@ -80,9 +95,7 @@ def transformar():
 
     linhas_artistas = []
     for tr in ["short_term", "medium_term", "long_term"]:
-        resposta = s3.get_object(Bucket="raw", Key=f"spotify/top_artists_{tr}.json")
-        conteudo = resposta["Body"].read().decode("utf-8")
-        data = json.loads(conteudo)
+        data = ler_json(f"top_artists_{tr}.json")
 
         for posicao, item in enumerate(data["items"], start=1):
             linhas_artistas.append({
@@ -105,16 +118,16 @@ def transformar():
     print("gravado: spotify/top_artists.parquet")
 
     linhas_saved = []
-    resposta = s3.get_object(Bucket="raw", Key="spotify/saved_tracks.json")
-    conteudo = resposta["Body"].read().decode("utf-8")
-    data = json.loads(conteudo)
-    for item in data["items"]:
-        linhas_saved.append({
-            "faixa": item["track"]["name"],
-            "artista": item["track"]["artists"][0]["name"],
-            "spotify_track_id": item["track"]["id"],
-            "biblioteca_added_at": item["added_at"],
-        })
+    paginas = s3.list_objects_v2(Bucket="raw", Prefix=f"{prefixo}saved_tracks_")
+    for obj in paginas["Contents"]:
+        conteudo = s3.get_object(Bucket="raw", Key=obj["Key"])["Body"].read()
+        for item in json.loads(conteudo.decode("utf-8"))["items"]:
+            linhas_saved.append({
+                "faixa": item["track"]["name"],
+                "artista": item["track"]["artists"][0]["name"],
+                "spotify_track_id": item["track"]["id"],
+                "biblioteca_added_at": item["added_at"],
+            })
 
     df = pd.DataFrame(linhas_saved)
     print(df.shape)
@@ -128,7 +141,7 @@ def transformar():
     )
     print("gravado: spotify/saved_tracks.parquet")
 
-def carregar():
+def carregar(ti):
 
     s3 = boto3.client(
         "s3",
@@ -151,8 +164,6 @@ def carregar():
         dados = s3.get_object(Bucket="processed", Key=chave)["Body"].read()
         return pd.read_parquet(io.BytesIO(dados))
 
-    # Upsert (não UPDATE): o que só existe no Spotify também entra na dimensão.
-    # lower(nome): as duas fontes escrevem o mesmo nome com caixas diferentes.
     def upsert_artista(nome, spotify_artist_id=None):
         cur.execute(
             """
@@ -167,7 +178,6 @@ def carregar():
         return cur.fetchone()[0]
 
     def upsert_faixa(nome, album, artista_id, spotify_track_id=None):
-        # album: o do Last.fm tem precedência; o do Spotify só preenche vazio
         cur.execute(
             """
             INSERT INTO dim_faixa (nome, album, artista_id, spotify_track_id)
@@ -182,7 +192,7 @@ def carregar():
         )
         return cur.fetchone()[0]
 
-    hoje = date.today()
+    coletado_em = ti.xcom_pull(task_ids="extrair")["coletado_em"]
 
     # --- top de artistas ---
     df_artistas = ler_parquet("spotify/top_artists.parquet")
@@ -190,14 +200,13 @@ def carregar():
 
     for index, row in df_artistas.iterrows():
         artista_id = upsert_artista(row["artista"], row["spotify_artist_id"])
-        # FK = id que o upsert devolveu (subselect por nome podia não casar)
         cur.execute(
             """
             INSERT INTO fato_top_spotify (snapshot_date, time_range, tipo, posicao, artista_id)
             VALUES (%s, %s, 'artist', %s, %s)
             ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING;
             """,
-            (hoje, row["time_range"], row["posicao"], artista_id),
+            (coletado_em, row["time_range"], row["posicao"], artista_id),
         )
 
     # --- top de faixas ---
@@ -214,12 +223,15 @@ def carregar():
             VALUES (%s, %s, 'track', %s, %s)
             ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING;
             """,
-            (hoje, row["time_range"], row["posicao"], faixa_id),
+            (coletado_em, row["time_range"], row["posicao"], faixa_id),
         )
 
     # --- biblioteca salva ---
     df_saved = ler_parquet("spotify/saved_tracks.parquet")
     print(f"saved_tracks: {len(df_saved)} linhas", flush=True)
+
+    cur.execute("UPDATE dim_faixa SET na_biblioteca = FALSE, biblioteca_added_at = NULL "
+                "WHERE na_biblioteca;")
 
     for index, row in df_saved.iterrows():
         artista_id = upsert_artista(row["artista"])
@@ -230,7 +242,6 @@ def carregar():
             (row["biblioteca_added_at"], faixa_id),
         )
 
-    # um commit só: ou a coleta inteira entra, ou nada entra
     psycopg2_conn.commit()
     cur.close()
     psycopg2_conn.close()
