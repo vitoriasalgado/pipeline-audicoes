@@ -13,7 +13,16 @@ O que faz:
 A ordem importa. Sem a fusão, o CREATE INDEX falha com "Key (lower(nome))=(zayn)
 is duplicated". E fundir artistas pode criar colisão nova em dim_faixa (duas
 faixas de mesmo nome passam a dividir o mesmo artista_id), então isso é resolvido
-durante a fusão dos artistas, antes de fundir as faixas.
+durante a fusão dos artistas, antes de fundir as faixas — sempre fundindo a
+homônima primeiro e só depois repontando, senão o UNIQUE (nome, artista_id) que
+ainda existe em dim_faixa é violado no meio do caminho.
+
+**Dois critérios de sobrevivência, para contextos diferentes.** Aqui, a variante
+que fica é a de **mais scrobbles** (empate → menor id): é uma decisão histórica,
+sobre qual grafia representa melhor o que foi de fato ouvido. Já em tempo de
+execução, o `ON CONFLICT ... DO UPDATE` das DAGs nunca altera a coluna `nome`,
+então vale a regra oposta: **a primeira grafia vista é a que fica**. Uma
+migração reorganiza o passado; o upsert preserva o presente.
 
 Rodar no host, a partir da raiz do projeto, com a venv ativa:
 
@@ -109,9 +118,11 @@ for _, ids in grupos:
         if existente:
             manter, sair = [r[0] for r in por_scrobbles([fid, existente[0]])]
             if manter == fid:
+                # funde ANTES de repontar: enquanto a homônima do sobrevivente
+                # existir, o UPDATE viola o UNIQUE (nome, artista_id)
+                fundir_faixa(sair, fid)
                 cur.execute("UPDATE dim_faixa SET artista_id = %s WHERE id = %s;",
                             (sobrevivente, fid))
-                fundir_faixa(sair, fid)
             else:
                 fundir_faixa(fid, manter)
         else:
