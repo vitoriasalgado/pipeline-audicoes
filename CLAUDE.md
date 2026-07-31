@@ -49,7 +49,9 @@ Princípios que atravessam todo o código e devem ser respeitados nas decisões:
 - **`raw` é imutável e é a fonte única** — vale para o Last.fm: o `backfill.py` grava uma página por objeto, e a DAG diária grava uma pasta por execução (`lastfm/incremental/<ts_nodash>/page_NNNN.json`). A camada `processed` é exceção deliberada: é derivada, regenerável, e a marca d'água garante o reprocessamento. **Ainda não vale para o Spotify**, que usa chaves fixas — dívida **D2** (§9.1 do PRD).
 - **Idempotência e carga incremental** são as duas decisões que definem a corretude do núcleo, e **as duas estão implementadas** no Last.fm. Idempotência: filtrar `nowplaying` (vem sem `date`) e `UNIQUE (scrobble_uts, faixa_id)` com `ON CONFLICT DO NOTHING`. Incrementalidade: a task `descobrir_marca_dagua` lê `max(scrobble_uts)` da `fato_audicoes` e passa por XCom para a `extrair`, que usa como `from` (inclusivo, daí o `+1`) e **pagina** por `@attr.totalPages`. A marca d'água vem do warehouse de propósito — é derivada do dado, então nunca dessincroniza; não trocar por Airflow Variable ou arquivo de controle.
 - **Casos de borda da extração incremental** já tratados, não reintroduzir: janela vazia → `AirflowSkipException` **antes** de gravar no MinIO (senão sobrescreve com vazio); `max()` de tabela vazia → `None`, falha explícita pedindo o backfill; um único resultado → o Last.fm devolve `track` como objeto, não lista.
-- **Modelo estrela/constelação:** duas fatos (`fato_audicoes` do Last.fm, `fato_top_spotify`) compartilhando `dim_artista`, `dim_faixa`, `dim_tempo`. Faixas/artistas casam entre fontes **por nome** (chave de negócio); `spotify_*_id` e `mbid` são atributos de apoio e podem vir vazios.
+- **Modelo estrela/constelação:** duas fatos (`fato_audicoes` do Last.fm, `fato_top_spotify`) compartilhando `dim_artista`, `dim_faixa`, `dim_tempo`. `spotify_*_id` e `mbid` são atributos de apoio e podem vir vazios.
+- **A chave de negócio é o nome, comparado sem distinção de caixa.** Garantido por índice: `unique (lower(nome))` em `dim_artista`, `unique (lower(nome), artista_id)` em `dim_faixa`. **Os quatro upserts das duas DAGs usam esses índices no `ON CONFLICT`** — trocar por `ON CONFLICT (nome)` reintroduz linha fantasma (`Zayn` e `ZAYN` viram dois artistas, o enriquecimento cai no que tem zero execuções) e passa a estourar violação de índice. O `DO UPDATE` nunca altera a coluna `nome`: a primeira grafia vista é a que fica.
+- **Não normalizar sufixos de versão** (`- 2014 Remaster`, `- Live At …`). São ~184 faixas, e há títulos legítimos com hífen que uma regra ingênua corromperia. Decisão registrada no PRD §5.
 - **`localhost` vs nome de serviço:** scripts rodados no host falam com o MinIO em `http://localhost:9000`; código que roda dentro de container (Airflow) usa `http://minio:9000`. Confundir isso é um erro clássico.
 
 ## Stack e anti-padrões
@@ -102,7 +104,7 @@ Não há suíte de testes nem linter configurados — a "verificação" de cada 
 
 ## Mudanças que exigem cuidado
 
-O warehouse tem **61.338 scrobbles** (ago/2020 → jul/2026) que não são reproduzíveis rapidamente. Antes de qualquer uma destas, confirmar com a usuária:
+O warehouse tem **~62 mil scrobbles** (ago/2020 →, e crescendo a cada execução diária) que não são reproduzíveis rapidamente. Não fixar o número exato em documento: ele muda todo dia. Antes de qualquer uma destas, confirmar com a usuária:
 
 - **Nunca descomentar os `DROP TABLE` do `db/schema.sql`.** Apagam o warehouse inteiro.
 - **Schema já povoado muda com `ALTER TABLE`**, não editando o `schema.sql` (que é `IF NOT EXISTS` e ignora tabelas existentes).

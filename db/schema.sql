@@ -1,12 +1,7 @@
--- Esquema do warehouse (camada ouro): constelação com duas fatos e dimensões compartilhadas.
+-- Esquema do warehouse (ouro): constelação com duas fatos e dimensões compartilhadas.
+-- Seguro de rodar de novo (IF NOT EXISTS).
 --
--- Este arquivo é SEGURO de rodar mais de uma vez: os CREATE são IF NOT EXISTS e não
--- tocam em dado existente.
---
--- ⚠️  Os DROP abaixo estão comentados de propósito. Rodá-los APAGA o warehouse inteiro,
---     incluindo os ~61 mil scrobbles do histórico (ago/2020 →), que só voltam rodando
---     `python scripts/backfill.py` de novo — dezenas de minutos e ~305 chamadas à API.
---     Descomente apenas se a intenção for realmente recriar tudo do zero.
+-- ⚠️  Descomentar os DROP apaga o histórico inteiro; só volta com scripts/backfill.py.
 --
 -- DROP TABLE IF EXISTS fato_top_spotify;
 -- DROP TABLE IF EXISTS fato_audicoes;
@@ -42,6 +37,14 @@ CREATE TABLE IF NOT EXISTS dim_tempo (
     dia_semana INT,
     UNIQUE(data, hora)
 );
+
+-- O nome é a chave de negócio entre Last.fm e Spotify, e as duas fontes usam
+-- caixas diferentes ('Zayn'/'ZAYN'). É por estes índices que os upserts das
+-- DAGs fazem ON CONFLICT.
+CREATE UNIQUE INDEX IF NOT EXISTS dim_artista_nome_lower_uq
+    ON dim_artista (lower(nome));
+CREATE UNIQUE INDEX IF NOT EXISTS dim_faixa_nome_lower_artista_uq
+    ON dim_faixa (lower(nome), artista_id);
 
 CREATE TABLE IF NOT EXISTS fato_audicoes (
     id SERIAL PRIMARY KEY,

@@ -165,7 +165,8 @@ def carregar():
 
     for index, row in df_check.iterrows():
         cur.execute(
-            "INSERT INTO dim_artista (nome, mbid) VALUES (%s, %s) ON CONFLICT (nome) DO UPDATE SET mbid = EXCLUDED.mbid " \
+            # lower(nome): 'Zayn' e 'ZAYN' são o mesmo artista
+            "INSERT INTO dim_artista (nome, mbid) VALUES (%s, %s) ON CONFLICT (lower(nome)) DO UPDATE SET mbid = EXCLUDED.mbid " \
             "RETURNING id",
             (row["artista"], row["artista_mbid"]),
         )
@@ -174,7 +175,7 @@ def carregar():
         cur.execute(
             """
             INSERT INTO dim_faixa (nome, album, artista_id) VALUES (%s, %s, %s)
-            ON CONFLICT (nome, artista_id) DO UPDATE SET album = EXCLUDED.album
+            ON CONFLICT (lower(nome), artista_id) DO UPDATE SET album = EXCLUDED.album
             RETURNING id;
             """,
             (row["faixa"], row["album"], artista_id),

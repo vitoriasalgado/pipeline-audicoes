@@ -147,85 +147,94 @@ def carregar():
 
     cur = psycopg2_conn.cursor()
 
-    resposta = s3.get_object(Bucket="processed", Key="spotify/top_artists.parquet")
-    dados = resposta["Body"].read()
-    df_artistas = pd.read_parquet(io.BytesIO(dados))
-    print(f"parquet lido: {len(df_artistas)} linhas", flush=True)
+    def ler_parquet(chave):
+        dados = s3.get_object(Bucket="processed", Key=chave)["Body"].read()
+        return pd.read_parquet(io.BytesIO(dados))
 
-    for index, row in df_artistas.iterrows():
-        cur.execute(
-            "UPDATE dim_artista SET spotify_artist_id = %s WHERE nome = %s",
-            (row["spotify_artist_id"], row["artista"]),
-        )
-
-    psycopg2_conn.commit()
-    print("artistas gravados!", flush=True)
-
-    resposta = s3.get_object(Bucket="processed", Key="spotify/top_tracks.parquet")
-    dados = resposta["Body"].read()
-    df_faixas = pd.read_parquet(io.BytesIO(dados))
-    print(f"parquet de faixas lido: {len(df_faixas)} linhas", flush=True)
-
-    for index, row in df_faixas.iterrows():
+    # Upsert (não UPDATE): o que só existe no Spotify também entra na dimensão.
+    # lower(nome): as duas fontes escrevem o mesmo nome com caixas diferentes.
+    def upsert_artista(nome, spotify_artist_id=None):
         cur.execute(
             """
-            UPDATE dim_faixa SET spotify_track_id = %s
-            WHERE nome = %s
-              AND artista_id = (SELECT id FROM dim_artista WHERE nome = %s)
+            INSERT INTO dim_artista (nome, spotify_artist_id) VALUES (%s, %s)
+            ON CONFLICT (lower(nome)) DO UPDATE
+               SET spotify_artist_id = COALESCE(EXCLUDED.spotify_artist_id,
+                                                dim_artista.spotify_artist_id)
+            RETURNING id;
             """,
-            (row["spotify_track_id"], row["faixa"], row["artista"]),
+            (nome, spotify_artist_id),
         )
+        return cur.fetchone()[0]
 
-    psycopg2_conn.commit()
-    print("faixas gravadas!", flush=True)
-
-    resposta = s3.get_object(Bucket="processed", Key="spotify/saved_tracks.parquet")
-    dados = resposta["Body"].read()
-    df_saved = pd.read_parquet(io.BytesIO(dados))
-    print(f"parquet de biblioteca lido: {len(df_saved)} linhas", flush=True)
-
-    for index, row in df_saved.iterrows():
+    def upsert_faixa(nome, album, artista_id, spotify_track_id=None):
+        # album: o do Last.fm tem precedência; o do Spotify só preenche vazio
         cur.execute(
             """
-            UPDATE dim_faixa SET na_biblioteca = TRUE, biblioteca_added_at = %s
-            WHERE nome = %s
-              AND artista_id = (SELECT id FROM dim_artista WHERE nome = %s)
+            INSERT INTO dim_faixa (nome, album, artista_id, spotify_track_id)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (lower(nome), artista_id) DO UPDATE
+               SET spotify_track_id = COALESCE(EXCLUDED.spotify_track_id,
+                                               dim_faixa.spotify_track_id),
+                   album = COALESCE(dim_faixa.album, EXCLUDED.album)
+            RETURNING id;
             """,
-            (row["biblioteca_added_at"], row["faixa"], row["artista"]),
+            (nome, album, artista_id, spotify_track_id),
         )
-
-    psycopg2_conn.commit()
-    print("biblioteca gravada!", flush=True)
+        return cur.fetchone()[0]
 
     hoje = date.today()
+
+    # --- top de artistas ---
+    df_artistas = ler_parquet("spotify/top_artists.parquet")
+    print(f"top_artists: {len(df_artistas)} linhas", flush=True)
+
     for index, row in df_artistas.iterrows():
+        artista_id = upsert_artista(row["artista"], row["spotify_artist_id"])
+        # FK = id que o upsert devolveu (subselect por nome podia não casar)
         cur.execute(
             """
             INSERT INTO fato_top_spotify (snapshot_date, time_range, tipo, posicao, artista_id)
-            VALUES (%s, %s, 'artist', %s, (SELECT id FROM dim_artista WHERE nome = %s))
-            ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING
+            VALUES (%s, %s, 'artist', %s, %s)
+            ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING;
             """,
-            (hoje, row["time_range"], row["posicao"], row["artista"]),
+            (hoje, row["time_range"], row["posicao"], artista_id),
         )
 
-    psycopg2_conn.commit()
-    print("fato artistas gravada!", flush=True)
+    # --- top de faixas ---
+    df_faixas = ler_parquet("spotify/top_tracks.parquet")
+    print(f"top_tracks: {len(df_faixas)} linhas", flush=True)
 
     for index, row in df_faixas.iterrows():
+        artista_id = upsert_artista(row["artista"], row["spotify_artist_id"])
+        faixa_id = upsert_faixa(row["faixa"], row["album"], artista_id,
+                                row["spotify_track_id"])
         cur.execute(
             """
             INSERT INTO fato_top_spotify (snapshot_date, time_range, tipo, posicao, faixa_id)
-            VALUES (%s, %s, 'track', %s,
-                    (SELECT id FROM dim_faixa
-                     WHERE nome = %s
-                       AND artista_id = (SELECT id FROM dim_artista WHERE nome = %s)))
-            ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING
+            VALUES (%s, %s, 'track', %s, %s)
+            ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING;
             """,
-            (hoje, row["time_range"], row["posicao"], row["faixa"], row["artista"]),
+            (hoje, row["time_range"], row["posicao"], faixa_id),
         )
 
+    # --- biblioteca salva ---
+    df_saved = ler_parquet("spotify/saved_tracks.parquet")
+    print(f"saved_tracks: {len(df_saved)} linhas", flush=True)
+
+    for index, row in df_saved.iterrows():
+        artista_id = upsert_artista(row["artista"])
+        faixa_id = upsert_faixa(row["faixa"], None, artista_id,
+                                row["spotify_track_id"])
+        cur.execute(
+            "UPDATE dim_faixa SET na_biblioteca = TRUE, biblioteca_added_at = %s WHERE id = %s;",
+            (row["biblioteca_added_at"], faixa_id),
+        )
+
+    # um commit só: ou a coleta inteira entra, ou nada entra
     psycopg2_conn.commit()
-    print("fato faixas gravada!", flush=True)
+    cur.close()
+    psycopg2_conn.close()
+    print("carga do Spotify concluida", flush=True)
 
 with DAG(
     dag_id="pipeline_spotify",
