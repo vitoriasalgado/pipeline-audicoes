@@ -35,7 +35,7 @@ Segue a arquitetura **medalhão** (bronze → prata → ouro) do documento de st
 > item está de fato atendido está na **§7**, e o que fica de fora, na **§9.1**.
 
 ### Não-objetivos (fora do escopo atual)
-- Tasks de **qualidade de dados** dedicadas (planejado para a Fase 5, depois do núcleo).
+- ~~Tasks de **qualidade de dados** dedicadas~~ — eram não-objetivo no planejamento; foram implementadas depois (RF8, §6).
 - Dashboard visual (BI) — primeiro o dado correto, depois a visualização.
 - Deploy em nuvem — roda 100% local/containerizado.
 - Recomendação musical / ML — explicitamente fora.
@@ -228,12 +228,13 @@ vêm com o motivo, para não serem "consertadas" depois. O que o projeto não fa
 na §9.1.
 
 ### DAG `pipeline_audicoes` (Last.fm — diária)
-[`dags/pipeline_audicoes.py`](../dags/pipeline_audicoes.py). Gatilho `@daily`, `catchup=False`, `retries=2`, `retry_delay=1min`. **Quatro** tasks em sequência: `descobrir_marca_dagua → extrair → transformar → carregar`.
+[`dags/pipeline_audicoes.py`](../dags/pipeline_audicoes.py). Gatilho `@daily`, `catchup=False`, `retries=2`, `retry_delay=1min`. **Cinco** tasks em sequência: `descobrir_marca_dagua → extrair → transformar → carregar → validar`.
 
 1. **Descobrir a marca d'água → XCom:** `SELECT max(scrobble_uts) FROM fato_audicoes` e devolve o valor. É a resposta persistida à pergunta "até onde eu já carreguei". A marca é **derivada do próprio dado**, não um estado guardado em paralelo: se a carga funcionou, ela subiu; se falhou, ficou onde estava. Não existe cenário em que ela dessincroniza do warehouse — foi por isso que não se usou uma Airflow Variable nem um arquivo de controle.
 2. **Extrair → `raw`:** lê a marca d'água do XCom e chama `user.getRecentTracks` com `from = marca + 1` (o `from` do Last.fm é inclusivo) e `limit=200`. **Pagina** por `@attr.totalPages`, com `sleep(0.25s)` entre páginas, e grava **uma página por objeto** em `raw/lastfm/incremental/<ts_nodash>/page_NNNN.json` — pasta única por execução, identificada pelo instante lógico do run. Devolve o prefixo no XCom. Casos de borda: marca d'água `None` (warehouse vazio) → falha explícita pedindo o backfill; janela vazia (`total = 0`) → `AirflowSkipException` **antes** de gravar, para não escrever objeto vazio.
 3. **Transformar → `processed`:** recebe o prefixo pelo XCom, lista os objetos daquela pasta e concatena todas as páginas (tratando a esquisitice do Last.fm de devolver `track` como objeto, não lista, quando há um único resultado). Achata com `pd.json_normalize`, seleciona as 6 colunas de interesse, converte `date.uts`, **descarta o `nowplaying`** (vem sem `date` → `dropna`), deduplica por (`scrobble_uts`, `faixa`) e grava `processed/lastfm/recent.parquet`.
-4. **Carregar → `analytics`:** lê o Parquet e itera **linha a linha**: upsert em `dim_artista` (`ON CONFLICT (nome)`), `dim_faixa` (`ON CONFLICT (nome, artista_id)`) e `dim_tempo` (`ON CONFLICT (data, hora)`), cada um com `RETURNING id`; por fim insere em `fato_audicoes` com `ON CONFLICT (scrobble_uts, faixa_id) DO NOTHING`.
+4. **Carregar → `analytics`:** lê o Parquet e itera **linha a linha**: upsert em `dim_artista` (`ON CONFLICT (lower(nome))`), `dim_faixa` (`ON CONFLICT (lower(nome), artista_id)`) e `dim_tempo` (`ON CONFLICT (data, hora)`), cada um com `RETURNING id`; por fim insere em `fato_audicoes` com `ON CONFLICT (scrobble_uts, faixa_id) DO NOTHING`.
+5. **Validar:** cinco checagens sobre o que acabou de entrar — todo `scrobble_uts` da prata existe no ouro, nenhuma FK nula, nenhum scrobble no futuro, nenhum artista ou faixa duplicado por caixa. Cada uma deve responder zero; qualquer outra resposta reprova a task, que fica vermelha e dispara o alerta como qualquer outra falha.
 
 **Duas garantias diferentes, e é importante não confundi-las.** A **idempotência** (`UNIQUE` + `ON CONFLICT`) garante que reprocessar não duplica. A **incrementalidade** (marca d'água + paginação) garante que a janela é determinada pelo que falta carregar, não por um número fixo de registros, e que ela cabe inteira em qualquer tamanho — um intervalo longo sem execução entra completo na execução seguinte.
 
@@ -258,11 +259,12 @@ Quem quiser eliminar até esse resíduo pode congelar a janela passando também 
 Executado uma vez, em jul/2026: **61.338 scrobbles em 72 meses (ago/2020 →)**. Daí em diante a DAG diária mantém o warehouse em dia — o total corrente é maior e muda todo dia, então não é fixado aqui.
 
 ### DAG `pipeline_spotify` (Spotify — semanal)
-[`dags/pipeline_spotify.py`](../dags/pipeline_spotify.py). Gatilho `@weekly` (o "top" é computado em janelas de semanas/meses; não faz sentido diário), `catchup=False`, mesmos retries. **Três** tasks: `extrair → transformar → carregar` — não há marca d'água aqui, porque o "top" do Spotify é um retrato do momento, não um histórico de eventos: não existe "o que falta buscar", cada coleta pega o estado atual inteiro. OAuth via `spotipy` com `cache_path=/opt/airflow/.cache` e `open_browser=False` — o container não abre navegador, então reutiliza o `refresh_token` do cache ou falha limpo.
+[`dags/pipeline_spotify.py`](../dags/pipeline_spotify.py). Gatilho `@weekly` (o "top" é computado em janelas de semanas/meses; não faz sentido diário), `catchup=False`, mesmos retries. **Quatro** tasks: `extrair → transformar → carregar → validar` — não há marca d'água aqui, porque o "top" do Spotify é um retrato do momento, não um histórico de eventos: não existe "o que falta buscar", cada coleta pega o estado atual inteiro. OAuth via `spotipy` com `cache_path=/opt/airflow/.cache` e `open_browser=False` — o container não abre navegador, então reutiliza o `refresh_token` do cache ou falha limpo.
 
 1. **Extrair → `raw`:** para cada um dos três `time_range`, chama `/me/top/tracks` e `/me/top/artists` (`limit=50`); mais `/me/tracks`, **paginado** seguindo o campo `next` até esgotar a biblioteca (~1.500 faixas, ~32 páginas). Grava tudo em `raw/spotify/<ts_nodash>/` — pasta por execução, uma página por objeto — e devolve por XCom o prefixo **e a data da coleta**.
 2. **Transformar → `processed`:** recebe o prefixo pelo XCom, lê os seis JSONs de top e concatena as páginas da biblioteca, e normaliza em três Parquets — `top_tracks.parquet` (posição via `enumerate`, `time_range`, faixa, artista, álbum, ids), `top_artists.parquet` e `saved_tracks.parquet` (com `added_at`). Só o **primeiro artista** de cada faixa é considerado.
 3. **Carregar/enriquecer → `analytics`:** para cada item, faz **upsert** em `dim_artista` e `dim_faixa` (`ON CONFLICT` nos índices por `lower(nome)`, ver §5) e usa o **id devolvido pelo upsert** como FK ao inserir em `fato_top_spotify`, com `ON CONFLICT (snapshot_date, time_range, tipo, posicao) DO NOTHING`. Antes de marcar a biblioteca, **zera `na_biblioteca`** e remarca só o que veio na coleta. Um único `commit` no fim, então ninguém enxerga o estado zerado.
+4. **Validar:** quatro checagens — o número de linhas do top na prata bate com o que entrou no snapshot do ouro, nenhuma FK nula, nenhuma dimensão duplicada por caixa. A primeira é a que teria pego a falha do `UPDATE` puro no dia em que ela nasceu: o Parquet tinha 300 linhas e o snapshot recebia 276.
 
 **Por que upsert e não `UPDATE`.** A versão anterior fazia `UPDATE … WHERE nome = %s`: alterava quem já existia e **descartava em silêncio** quem não existia — ou seja, todo artista ou faixa que aparece no top do Spotify mas nunca foi scrobblado no Last.fm. Pior, a linha correspondente na fato era gravada mesmo assim, com FK **nula**, porque o id vinha de um subselect que não casava. Com o upsert, o item entra na dimensão e a FK vem do id retornado — a linha órfã deixa de ser possível por construção, sem precisar de um `CHECK` para barrá-la depois.
 
@@ -292,14 +294,14 @@ Legenda: ✅ atendido · ⚠️ atendido parcialmente · ⏳ não iniciado.
 | **RF5** | Carregar esquema constelação: `fato_audicoes`, `fato_top_spotify` e dimensões compartilhadas | ✅ `db/schema.sql`, ambas as fatos populadas |
 | **RF6** | Enriquecer dimensões com ids e biblioteca do Spotify | ✅ upsert: o que só existe no Spotify entra na dimensão em vez de ser descartado |
 | **RF7** | Garantir idempotência (reprocessar não duplica) | ✅ `UNIQUE` + `ON CONFLICT` em todas as tabelas |
-| **RF8** *(Fase 5)* | Validações de qualidade entre etapas | ⏳ planejado |
+| **RF8** | Validações de qualidade entre etapas | ✅ task `validar` no fim de cada DAG; reprova → task vermelha → alerta |
 
 ### Não-funcionais
 
 | | Requisito | Status |
 |---|---|---|
 | **RNF1** | Orquestração observável (UI, logs, retries, alertas) via Airflow; duas DAGs | ✅ UI, logs, `retries=2` e aviso por webhook (`on_failure_callback`, só após esgotar os retries) |
-| **RNF2** | Tudo containerizado (`docker-compose`), reproduzível localmente | ⚠️ Airflow, MinIO, Postgres e Redis no compose; o `backfill.py` roda no host |
+| **RNF2** | Tudo containerizado (`docker-compose`), reproduzível localmente | ✅ Airflow, MinIO, Postgres e Redis no compose; o `backfill.py` roda no host **ou** no container, sem editar código — os endereços vêm de variável de ambiente |
 | **RNF3** | Credenciais fora do código (`.env`); **nunca** commitadas | ✅ `.env` no `.gitignore`, `.env.example` versionado |
 | **RNF4** | Token OAuth do Spotify com cache + refresh automático | ✅ `.cache` montado no container, `open_browser=False` |
 | **RNF5** | Storage desacoplado de compute (MinIO ↔ Postgres) | ✅ |
@@ -354,7 +356,6 @@ limite da fonte. Não há plano de ação associado.
 - A carga da DAG do Last.fm é **linha a linha** — aceitável para as centenas de linhas de uma janela diária, não para lotes grandes; por isso o `backfill.py` usa `execute_values`. ⚠️ Se converter, manter o **`commit` único** no fim: a atomicidade é o que garante a recuperação (§6).
 - Sobra um `SELECT count(*)` sem `fetch` em `carregar()`, no Last.fm.
 - O `transformar` do Spotify considera apenas o **primeiro artista** de cada faixa — faixas colaborativas perdem os demais.
-- **Não há tasks de qualidade de dados** entre as etapas (RF8, planejado para a Fase 5).
 
 ---
 
@@ -367,7 +368,7 @@ limite da fonte. Não há plano de ação associado.
 | 3 — Docker/MinIO | `docker-compose` subindo o lake | ✅ |
 | 4 — Airflow | `transform`/`load` + DAG `pipeline_audicoes` verde | ✅ |
 | 4b — Spotify | app + OAuth; DAG `pipeline_spotify` (top + biblioteca) enriquecendo as dimensões; cruzamento entre as fontes | ✅ |
-| 5 — Qualidade | tasks de validação | ⏳ fora do escopo entregue — extensão possível, não pendência |
+| 5 — Qualidade | tasks de validação | ✅ |
 | 6 — Portfólio | README, diagrama, este PRD, post | ✅ |
 
 **Trilha paralela — as dívidas da §9.1: concluída.** Não fazia parte das fases do guia e

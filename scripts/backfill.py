@@ -34,10 +34,13 @@ API_URL = "https://ws.audioscrobbler.com/2.0/"
 PAGINA_TAMANHO = 200
 PAUSA_ENTRE_PAGINAS = 0.25  # segundos — educação com a API do Last.fm
 
-# Clientes de infra (rodando no host → localhost)
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://localhost:9000")
+WAREHOUSE_HOST = os.environ.get("WAREHOUSE_HOST", "localhost")
+WAREHOUSE_PORT = int(os.environ.get("WAREHOUSE_PORT", "5433"))
+
 s3 = boto3.client(
     "s3",
-    endpoint_url="http://localhost:9000",
+    endpoint_url=MINIO_ENDPOINT,
     aws_access_key_id="minioadmin",
     aws_secret_access_key="minioadmin",
 )
@@ -141,8 +144,8 @@ def transformar(lista_de_faixas):
 # ---------------------------------------------------------------------------
 def carregar(df):
     conn = psycopg2.connect(
-        host="localhost",
-        port=5433,
+        host=WAREHOUSE_HOST,
+        port=WAREHOUSE_PORT,
         dbname="warehouse",
         user="warehouse",
         password="warehouse",

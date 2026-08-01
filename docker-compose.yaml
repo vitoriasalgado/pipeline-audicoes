@@ -77,6 +77,9 @@ x-airflow-common:
     SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
     SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI}
     ALERTA_WEBHOOK_URL: ${ALERTA_WEBHOOK_URL:-}
+    MINIO_ENDPOINT: http://minio:9000
+    WAREHOUSE_HOST: warehouse
+    WAREHOUSE_PORT: 5432
     # The following line can be used to set a custom config file, stored in the local config folder
     # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file
     # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
@@ -86,6 +89,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/.cache:/opt/airflow/.cache   # token OAuth do Spotify (refresh_token)
+    - ${AIRFLOW_PROJ_DIR:-.}/scripts:/opt/airflow/scripts
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on

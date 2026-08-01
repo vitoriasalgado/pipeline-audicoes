@@ -7,6 +7,7 @@ from airflow.exceptions import AirflowSkipException
 from airflow.operators.python import PythonOperator
 
 from alertas import avisar_falha
+from validacoes import validar_lastfm
 
 def descobrir_marca_dagua():
 
@@ -232,6 +233,10 @@ with DAG(
         task_id="carregar",
         python_callable=carregar,
     )
-    marca_dagua_task >> extrair_task >> transformar_task >> carregar_task
+    validar_task = PythonOperator(
+        task_id="validar",
+        python_callable=validar_lastfm,
+    )
+    marca_dagua_task >> extrair_task >> transformar_task >> carregar_task >> validar_task
 
 

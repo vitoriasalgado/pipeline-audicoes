@@ -7,6 +7,7 @@ from airflow.operators.python import PythonOperator # type: ignore
 from spotipy.oauth2 import SpotifyOAuth
 
 from alertas import avisar_falha
+from validacoes import validar_spotify
 
 def extrair(ts_nodash):
 
@@ -273,5 +274,9 @@ with DAG(
         task_id="carregar",
         python_callable=carregar,
     )
-    extrair_task >> transformar_task >> carregar_task
+    validar_task = PythonOperator(
+        task_id="validar",
+        python_callable=validar_spotify,
+    )
+    extrair_task >> transformar_task >> carregar_task >> validar_task
 

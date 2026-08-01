@@ -31,7 +31,7 @@ Diagrama completo em [`docs/arquitetura.jpg`](docs/arquitetura.jpg).
 
 ## O que já roda
 
-Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a ponta, em sequência — `extrair → transformar → carregar`, as três tasks verdes numa mesma execução:
+Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a ponta, em sequência — `descobrir_marca_dagua → extrair → transformar → carregar → validar`, todas as tasks verdes numa mesma execução:
 
 - ✅ **Ingestão (bronze)** — puxa meu histórico do Last.fm e grava o JSON cru no data lake (MinIO), no horário agendado. A carga é **incremental**: uma task pergunta ao warehouse qual o scrobble mais recente já carregado (a *marca d'água*) e a extração busca só o que veio depois, paginando quando a janela é grande. Cada execução escreve numa pasta própria — o bronze nunca é sobrescrito.
 - ✅ **Transformação (prata)** — lê o JSON cru, limpa com pandas (descarta o `nowplaying`, tipa e deduplica) e salva em Parquet.
@@ -47,9 +47,7 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 ![Modelo em constelação: duas fatos sobre uma camada de dimensões compartilhada](docs/modelo_constelacao.png)
 
-## Extensões possíveis
-
-O escopo do projeto está fechado. Num próximo ciclo caberiam validações de qualidade entre as etapas — checagens que falham a DAG quando o dado chega fora do esperado, em vez de deixar passar.
+- ✅ **Qualidade e alerta** — cada DAG termina numa task de **validação**: um punhado de perguntas sobre o que acabou de entrar (chave estrangeira órfã, dimensão duplicada, linha da prata que não chegou ao ouro) que precisam responder zero. Reprovou, a task fica vermelha e chega um **aviso por webhook** — só depois de esgotar as tentativas, para que falha que o retry resolve não vire barulho.
 
 ## Documentação
 
@@ -58,7 +56,7 @@ O escopo do projeto está fechado. Num próximo ciclo caberiam validações de q
 ## Estrutura do projeto
 
 ```
-dags/        as duas DAGs do Airflow — é isto que roda em produção
+dags/        as duas DAGs do Airflow (+ validações e alerta) — é isto que roda
 lastfm/      fonte 1 — scripts de host (consultas, carga manual)
 spotify/     fonte 2 — idem, para o Spotify (OAuth)
 db/          schema.sql (esquema do warehouse) + migracoes/ (mudanças em base já povoada)
