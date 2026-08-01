@@ -39,11 +39,11 @@ Uma DAG do Airflow (`pipeline_audicoes`) executa a pipeline inteira de ponta a p
 
 Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backfill.py`) já povoou o warehouse com ~6 anos de audições — a base para as análises.
 
-- ✅ **Análise (ouro)** — o esquema estrela responde por si a pergunta que originou o projeto: *"qual foi meu artista mais ouvido em cada mês"* — `fato_audicoes` × `dim_faixa` × `dim_artista` × `dim_tempo`, uma linha por mês ao longo dos anos.
+- ✅ **Análise (ouro)** — o esquema estrela responde a pergunta que originou o projeto: *"qual foi meu artista mais ouvido em cada mês"* — `fato_audicoes` × `dim_faixa` × `dim_artista` × `dim_tempo`, uma linha por mês ao longo dos anos. A consulta está em [`db/consultas/artista_por_mes.sql`](db/consultas/artista_por_mes.sql).
 
 **Segunda fonte — Spotify (via OAuth).** Uma segunda DAG (`pipeline_spotify`, semanal) traz meus *tops* e minha biblioteca do Spotify pelo mesmo caminho bronze → prata → ouro. No warehouse, isso vira um **esquema constelação**: uma nova fato (`fato_top_spotify`) que compartilha as mesmas dimensões da `fato_audicoes`, além de enriquecer artistas e faixas com os ids do Spotify — casando as duas fontes **por nome**. O token OAuth roda sozinho dentro do container (sem navegador), reutilizando o *refresh token* em cache.
 
-- ✅ **O cruzamento entre as fontes (ouro)** — a constelação responde o que nenhuma das duas fatos responderia sozinha: o *top computado* pelo Spotify ao lado do *mais tocado* de verdade, na mesma janela de tempo. As duas concordam no topo e divergem conforme desce — e a `fato_top_spotify` guarda uma série histórica que a própria API do Spotify não guarda, porque ela só devolve o "top de agora".
+- ✅ **O cruzamento entre as fontes (ouro)** — a constelação responde o que nenhuma das duas fatos responderia sozinha: o *top computado* pelo Spotify ao lado do *mais tocado* de verdade, na mesma janela de tempo ([`db/consultas/cruzamento_lastfm_spotify.sql`](db/consultas/cruzamento_lastfm_spotify.sql)). As duas concordam no topo e divergem conforme desce — e a `fato_top_spotify` guarda uma série histórica que a própria API do Spotify não guarda, porque ela só devolve o "top de agora".
 
 ![Modelo em constelação: duas fatos sobre uma camada de dimensões compartilhada](docs/modelo_constelacao.png)
 
@@ -59,7 +59,7 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 dags/        as duas DAGs do Airflow (+ validações e alerta) — é isto que roda
 lastfm/      fonte 1 — scripts de host (consultas, carga manual)
 spotify/     fonte 2 — idem, para o Spotify (OAuth)
-db/          schema.sql (esquema do warehouse) + migracoes/ (mudanças em base já povoada)
+db/          schema.sql (esquema do warehouse) + migracoes/ + consultas/ (as queries analíticas)
 scripts/     backfill.py — carga histórica pontual
 arquivo/     código aposentado, mantido como registro das missões
 docs/        PRD e documentação

@@ -89,7 +89,7 @@ python lastfm/ler_parquet.py
 
 **Todo `.py` fora de `dags/` e `arquivo/` roda no host.** Os de `lastfm/` e `spotify/` fixam `localhost`; o `scripts/backfill.py` lê do ambiente e roda nos dois lugares. As versões moldadas para container foram para `arquivo/` — se um script em `lastfm/` ou `spotify/` voltar a fixar nome de serviço, é bug, não decisão.
 
-Estrutura das pastas: `dags/` (as **duas** DAGs — `pipeline_audicoes` e `pipeline_spotify`; o compose monta essa pasta, e é o que roda), `lastfm/` e `spotify/` (scripts de host por fonte), `db/` (`schema.sql` + `migracoes/`), `scripts/` (backfill; também montada nos containers), `arquivo/` (código aposentado mantido como registro — as primeiras missões e as versões de etapa que a DAG deixou para trás).
+Estrutura das pastas: `dags/` (as **duas** DAGs — `pipeline_audicoes` e `pipeline_spotify`; o compose monta essa pasta, e é o que roda), `lastfm/` e `spotify/` (scripts de host por fonte), `db/` (`schema.sql` + `migracoes/` + `consultas/`, as queries analíticas das missões 12 e 18), `scripts/` (backfill; também montada nos containers), `arquivo/` (código aposentado mantido como registro — as primeiras missões e as versões de etapa que a DAG deixou para trás).
 
 O `backfill.py` roda nos dois lugares sem edição: `python scripts/backfill.py` no host, ou `docker compose exec airflow-worker python /opt/airflow/scripts/backfill.py` no container. Scripts sempre rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`), pra os caminhos relativos e o `.cache` do spotipy resolverem certo.
 
