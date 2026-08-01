@@ -6,6 +6,14 @@
 -- É a consulta que só a constelação permite: duas fatos medindo a mesma coisa
 -- de jeitos diferentes, sobre a mesma camada de dimensões.
 --
+-- Esta responde "o top do Spotify se sustenta nas minhas execuções?": parte do
+-- top, recorta as 20 primeiras posições e pendura a contagem real ao lado. É a
+-- versão que cabe numa tela.
+--
+-- O LEFT JOIN e o recorte escondem quem eu toquei e não entrou no top — que é
+-- metade da resposta. Essa metade está em cruzamento_completo.sql, com
+-- FULL OUTER e sem recorte.
+--
 -- As janelas são casadas de propósito — short_term (~4 semanas) do Spotify
 -- contra 28 dias de scrobbles. Sem isso, qualquer divergência poderia ser só a
 -- diferença de período. Trocar as duas juntas dá as outras versões da pergunta:
