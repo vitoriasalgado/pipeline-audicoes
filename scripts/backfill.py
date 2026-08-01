@@ -37,6 +37,7 @@ PAUSA_ENTRE_PAGINAS = 0.25  # segundos — educação com a API do Last.fm
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://localhost:9000")
 WAREHOUSE_HOST = os.environ.get("WAREHOUSE_HOST", "localhost")
 WAREHOUSE_PORT = int(os.environ.get("WAREHOUSE_PORT", "5433"))
+WAREHOUSE_DB   = os.environ.get("WAREHOUSE_DB", "warehouse")
 
 s3 = boto3.client(
     "s3",
@@ -146,7 +147,7 @@ def carregar(df):
     conn = psycopg2.connect(
         host=WAREHOUSE_HOST,
         port=WAREHOUSE_PORT,
-        dbname="warehouse",
+        dbname=WAREHOUSE_DB,
         user="warehouse",
         password="warehouse",
     )
@@ -154,26 +155,30 @@ def carregar(df):
 
     # -- dim_artista: insere os artistas distintos e lê os ids de volta --
     artistas = list(
-        df[["artista", "artista_mbid"]].drop_duplicates("artista").itertuples(index=False, name=None)
+        df.assign(_a=df["artista"].str.lower())[["artista", "artista_mbid", "_a"]]
+          .drop_duplicates("_a")[["artista", "artista_mbid"]].itertuples(index=False, name=None)
     )
     execute_values(
         cur,
-        "INSERT INTO dim_artista (nome, mbid) VALUES %s ON CONFLICT (nome) DO NOTHING",
+        "INSERT INTO dim_artista (nome, mbid) VALUES %s ON CONFLICT (lower(nome)) DO NOTHING",
         artistas,
     )
-    cur.execute("SELECT nome, id FROM dim_artista")
+    cur.execute("SELECT lower(nome), id FROM dim_artista")
     artista_id = {nome: id_ for nome, id_ in cur.fetchall()}
 
     # -- dim_faixa: precisa do artista_id; insere distintas e lê os ids --
-    faixas_df = df[["faixa", "album", "artista"]].drop_duplicates(subset=["faixa", "artista"]).copy()
-    faixas_df["artista_id"] = faixas_df["artista"].map(artista_id)
+    faixas_df = (
+        df.assign(_f=df["faixa"].str.lower(), _a=df["artista"].str.lower())
+          .drop_duplicates(subset=["_f", "_a"])[["faixa", "album", "artista"]].copy()
+    )
+    faixas_df["artista_id"] = faixas_df["artista"].str.lower().map(artista_id)
     faixas = list(faixas_df[["faixa", "album", "artista_id"]].itertuples(index=False, name=None))
     execute_values(
         cur,
-        "INSERT INTO dim_faixa (nome, album, artista_id) VALUES %s ON CONFLICT (nome, artista_id) DO NOTHING",
+        "INSERT INTO dim_faixa (nome, album, artista_id) VALUES %s ON CONFLICT (lower(nome), artista_id) DO NOTHING",
         faixas,
     )
-    cur.execute("SELECT nome, artista_id, id FROM dim_faixa")
+    cur.execute("SELECT lower(nome), artista_id, id FROM dim_faixa")
     faixa_id = {(nome, a_id): id_ for nome, a_id, id_ in cur.fetchall()}
 
     # -- dim_tempo: instantes distintos (data, hora) --
@@ -189,7 +194,8 @@ def carregar(df):
 
     # -- fato_audicoes: monta (scrobble_uts, faixa_id, tempo_id) e insere em lote --
     df = df.copy()
-    df["faixa_id"] = [faixa_id.get((f, artista_id.get(a))) for f, a in zip(df["faixa"], df["artista"])]
+    df["faixa_id"] = [faixa_id.get((f.lower(), artista_id.get(a.lower())))
+                      for f, a in zip(df["faixa"], df["artista"])]
     df["tempo_id"] = [tempo_id.get((d, h)) for d, h in zip(df["data"], df["hora"])]
     fatos = [
         (int(s), int(f), int(t))

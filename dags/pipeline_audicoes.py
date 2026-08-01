@@ -117,7 +117,6 @@ def transformar(ti):
         "mbid": "faixa_mbid",
         "artist.mbid": "artista_mbid"
     }, inplace=True)
-    print(df["scrobbles_uts"].isna().sum())
 
     df["scrobble_uts"] = pd.to_numeric(df["scrobbles_uts"], errors="coerce")
     df["data_hora"] = pd.to_datetime(df["scrobble_uts"], unit="s", errors="coerce")
@@ -125,9 +124,6 @@ def transformar(ti):
     df = df.drop_duplicates(subset=["scrobble_uts", "faixa"])
     df = df.drop(columns=["scrobbles_uts"])
 
-    print(df.dtypes)
-    print(df.columns)
-    print(df.head())
     print(len(df))
 
     buffer = io.BytesIO()
@@ -157,7 +153,6 @@ def carregar():
     )
 
     cur = psycopg2_conn.cursor()
-    cur.execute("SELECT count(*) FROM fato_audicoes;")
 
     resposta = s3.get_object(Bucket="processed", Key="lastfm/recent.parquet")
     dados = resposta["Body"].read()
@@ -204,6 +199,8 @@ def carregar():
     )
 
     psycopg2_conn.commit()
+    cur.close()
+    psycopg2_conn.close()
 
 with DAG(
     dag_id="pipeline_audicoes",

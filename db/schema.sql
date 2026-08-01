@@ -14,7 +14,7 @@
 
 CREATE TABLE IF NOT EXISTS dim_artista (
     id SERIAL PRIMARY KEY,
-    nome TEXT UNIQUE,
+    nome TEXT,
     mbid TEXT,
     spotify_artist_id TEXT
 );
@@ -26,8 +26,7 @@ CREATE TABLE IF NOT EXISTS dim_faixa (
     artista_id INT REFERENCES dim_artista(id),
     spotify_track_id TEXT,
     na_biblioteca BOOLEAN NOT NULL DEFAULT FALSE,
-    biblioteca_added_at TIMESTAMP,
-    UNIQUE(nome, artista_id)
+    biblioteca_added_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS dim_tempo (

@@ -57,18 +57,18 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 ```
 dags/        as duas DAGs do Airflow (+ validações e alerta) — é isto que roda
-lastfm/      fonte 1 — scripts de host (consultas, carga manual)
-spotify/     fonte 2 — idem, para o Spotify (OAuth)
+lastfm/      utilitário de host: ler o Parquet da prata
+spotify/     utilitário de host: conferir o OAuth listando os top tracks
 db/          schema.sql (esquema do warehouse) + migracoes/ + consultas/ (as queries analíticas)
 scripts/     backfill.py — carga histórica pontual
 arquivo/     código aposentado, mantido como registro das missões
 docs/        PRD e documentação
 ```
 
-> **O que roda no Airflow são as DAGs em `dags/`.** A lógica de cada etapa vive inline nelas —
-> as DAGs não importam módulos de `lastfm/` nem de `spotify/`. Essas pastas guardam os scripts
-> que se roda à mão; quando um deles para de refletir o que a DAG faz, vai para `arquivo/`,
-> para não passar por etapa atual.
+> **O que roda no Airflow são as DAGs em `dags/`.** A lógica de cada etapa vive inline nelas.
+> `lastfm/` e `spotify/` guardam só utilitários que se roda à mão; as versões de cada etapa,
+> escritas missão a missão, foram para `arquivo/` quando pararam de refletir o que a DAG faz —
+> código aposentado é registro, não deve passar por estado atual.
 
 > Os scripts são rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`).
 
@@ -117,7 +117,7 @@ Ele pagina todo o histórico do Last.fm, grava cada página no bronze e faz a ca
 
 ### 2º — a pipeline diária
 
-No Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `descobrir_marca_dagua → extrair → transformar → carregar` — a ingestão é **incremental**: cada execução pergunta ao warehouse até onde já carregou e busca só o que falta, paginando se for muito. Se não houver nada novo, as tasks são puladas em vez de falhar.
+No Airflow, ative a DAG **`pipeline_audicoes`** e clique em *Trigger* ▶️. Ela executa `descobrir_marca_dagua → extrair → transformar → carregar → validar` — a ingestão é **incremental**: cada execução pergunta ao warehouse até onde já carregou e busca só o que falta, paginando se for muito. Se não houver nada novo, as tasks são puladas em vez de falhar.
 
 ### 3º (opcional) — a esteira do Spotify
 

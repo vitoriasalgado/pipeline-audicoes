@@ -320,7 +320,7 @@ services:
         condition: service_completed_successfully
 
   minio:
-    image: quay.io/minio/minio
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -335,7 +335,7 @@ services:
   # sem isso, um clone novo quebra na primeira task com NoSuchBucket.
   # `mc mb --ignore-existing` é idempotente: subir de novo não dá erro.
   minio-init:
-    image: quay.io/minio/mc
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       - minio
     entrypoint: >

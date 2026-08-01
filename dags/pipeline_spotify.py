@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, date
-import json, os, requests, boto3, io, psycopg2, spotipy
+import json, os, boto3, io, psycopg2, spotipy
 import pandas as pd
 
 from airflow import DAG # type: ignore

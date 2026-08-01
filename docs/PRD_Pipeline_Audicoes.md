@@ -354,7 +354,7 @@ limite da fonte. Não há plano de ação associado.
 **Imperfeições aceitas:**
 - **O host e o Airflow rodam versões diferentes das mesmas bibliotecas.** Ambos estão fixados (`requirements.txt` e `_PIP_ADDITIONAL_REQUIREMENTS` no compose), mas em conjuntos distintos: a imagem do Airflow 2.10.5 traz constraints próprias e resolve para versões mais antigas — no pandas, **3.0 no host contra 2.1 no container**, uma *major* de diferença. Na prática, código testado à mão pode se comportar diferente dentro da DAG. Alinhar exigiria ou forçar o pandas 3 na imagem (que o Airflow 2.10 não suporta) ou rebaixar o host a uma versão sem wheel para Python 3.14 — nenhuma das duas é barata, então a divergência fica registrada em vez de resolvida.
 - A carga da DAG do Last.fm é **linha a linha** — aceitável para as centenas de linhas de uma janela diária, não para lotes grandes; por isso o `backfill.py` usa `execute_values`. ⚠️ Se converter, manter o **`commit` único** no fim: a atomicidade é o que garante a recuperação (§6).
-- Sobra um `SELECT count(*)` sem `fetch` em `carregar()`, no Last.fm.
+- O casamento entre fontes não resolve **grafias alternativas nem alfabetos diferentes** — `The Neighbourhood`/`The Neighborhood` e `Girls' Generation`/`소녀시대` são linhas separadas. Resolver exigiria usar `mbid`/`spotify_artist_id` como chave alternativa.
 - O `transformar` do Spotify considera apenas o **primeiro artista** de cada faixa — faixas colaborativas perdem os demais.
 
 ---

@@ -1,4 +1,4 @@
-import boto3, json, io
+import boto3, io
 import pandas as pd
 
 s3 = boto3.client(

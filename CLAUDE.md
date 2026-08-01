@@ -87,9 +87,11 @@ Rodar um script de host (ex.):
 python lastfm/ler_parquet.py
 ```
 
-**Todo `.py` fora de `dags/` e `arquivo/` roda no host.** Os de `lastfm/` e `spotify/` fixam `localhost`; o `scripts/backfill.py` lê do ambiente e roda nos dois lugares. As versões moldadas para container foram para `arquivo/` — se um script em `lastfm/` ou `spotify/` voltar a fixar nome de serviço, é bug, não decisão.
+**Todo `.py` fora de `dags/` e `arquivo/` roda no host.** Os de `lastfm/` e `spotify/` fixam `localhost`; o `scripts/backfill.py` lê do ambiente (`MINIO_ENDPOINT`, `WAREHOUSE_HOST`, `WAREHOUSE_PORT`, `WAREHOUSE_DB`) e roda nos dois lugares.
 
-Estrutura das pastas: `dags/` (as **duas** DAGs — `pipeline_audicoes` e `pipeline_spotify`; o compose monta essa pasta, e é o que roda), `lastfm/` e `spotify/` (scripts de host por fonte), `db/` (`schema.sql` + `migracoes/` + `consultas/`, as queries analíticas das missões 12 e 18), `scripts/` (backfill; também montada nos containers), `arquivo/` (código aposentado mantido como registro — as primeiras missões e as versões de etapa que a DAG deixou para trás).
+Estrutura das pastas: `dags/` (as **duas** DAGs — `pipeline_audicoes` e `pipeline_spotify`; o compose monta essa pasta, e é o que roda), `lastfm/` e `spotify/` (um utilitário de host cada: `ler_parquet.py` e `test_spotify.py`), `db/` (`schema.sql` + `migracoes/` + `consultas/`, as queries analíticas das missões 12 e 18), `scripts/` (backfill; também montada nos containers), `arquivo/` (código aposentado mantido como registro — as primeiras missões e as versões de etapa que a DAG deixou para trás).
+
+**Critério de aposentadoria:** script que deixa de refletir o que a DAG faz vai para `arquivo/`. Já aconteceu com as duas cargas e as duas etapas do Spotify, que ficaram com `ON CONFLICT (nome)` e `UPDATE ... WHERE nome` depois que as DAGs passaram a usar `lower(nome)` e upsert.
 
 O `backfill.py` roda nos dois lugares sem edição: `python scripts/backfill.py` no host, ou `docker compose exec airflow-worker python /opt/airflow/scripts/backfill.py` no container. Scripts sempre rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`), pra os caminhos relativos e o `.cache` do spotipy resolverem certo.
 
