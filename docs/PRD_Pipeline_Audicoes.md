@@ -54,9 +54,9 @@ Segue a arquitetura **medalhão** (bronze → prata → ouro) do documento de st
 ```
 Last.fm API ──► raw/  ──► processed/ ──►┐
 (scrobbles, diário)  (JSON)   (Parquet)  │   PostgreSQL (warehouse - ouro)
-                                         ├──► fato_audicoes
+                                         ├──► fato_audicoes ──► dim_tempo
 Spotify API ──► raw/  ──► processed/ ──►┤    fato_top_spotify
-(OAuth, semanal)     (JSON)   (Parquet)  │    dim_artista · dim_faixa · dim_tempo
+(OAuth, semanal)     (JSON)   (Parquet)  │    as duas ──► dim_artista · dim_faixa
                                          ┘
 
       MinIO = data lake (bronze + prata) · Airflow orquestra as duas esteiras
@@ -182,7 +182,7 @@ Scope: `user-read-recently-played`. Devolve as **últimas ~50** reproduções co
 
 Duas tabelas de fato compartilhando as dimensões de artista e de faixa.
 
-![Modelo em constelação: as duas DAGs alimentam duas fatos, que compartilham dim_artista, dim_faixa e dim_tempo](modelo_constelacao.png)
+![Modelo em constelação: as duas DAGs alimentam duas fatos, que compartilham dim_artista e dim_faixa; a dim_tempo é exclusiva da fato_audicoes](modelo_constelacao.png)
 
 *As duas esteiras chegam a fatos diferentes — `fato_audicoes` guarda um evento por audição, `fato_top_spotify` guarda uma posição por coleta — e ambas apontam para a mesma camada de dimensões. É essa camada compartilhada que torna possível cruzar as fontes com um `JOIN`, em vez de casar nomes na mão fora do banco.*
 

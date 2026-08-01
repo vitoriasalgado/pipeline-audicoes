@@ -21,7 +21,8 @@ Last.fm API ─┐
              ├──►  raw/        (JSON cru, bronze)
              └──►  processed/  (Parquet, prata)  ───►  analytics (ouro)
 Spotify API ─────►  (mesmo caminho bronze→prata→ouro)  fato_audicoes + fato_top_spotify
-(top + biblioteca, via OAuth)                          + dimensões (esquema constelação)
+(top + biblioteca, via OAuth)                          sobre dim_artista e dim_faixa
+                                                       (+ dim_tempo, só do Last.fm)
 
         (tudo agendado, executado e monitorado pelo Airflow:
          pipeline_audicoes @daily · pipeline_spotify @weekly)
