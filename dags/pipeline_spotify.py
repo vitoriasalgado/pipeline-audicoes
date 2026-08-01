@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, date
 import json, os, boto3, io, psycopg2, spotipy
 import pandas as pd
 
-from airflow import DAG # type: ignore
-from airflow.operators.python import PythonOperator # type: ignore
+from airflow import DAG
+from airflow.operators.python import PythonOperator
 from spotipy.oauth2 import SpotifyOAuth
 
 from alertas import avisar_falha
@@ -20,7 +20,7 @@ def extrair(ts_nodash):
         open_browser=False,   # sem navegador no container: usa o cache ou falha limpo
     )
 
-    sp = spotipy.Spotify(auth_manager=auth_manager) #type: ignore
+    sp = spotipy.Spotify(auth_manager=auth_manager)
 
     s3 = boto3.client(
         "s3",
@@ -85,7 +85,6 @@ def transformar(ti):
             })
 
     df = pd.DataFrame(linhas)
-    print(df.shape)
 
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False)
@@ -109,7 +108,6 @@ def transformar(ti):
             })
 
     df = pd.DataFrame(linhas_artistas)
-    print(df.shape)
 
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False)
@@ -133,7 +131,6 @@ def transformar(ti):
             })
 
     df = pd.DataFrame(linhas_saved)
-    print(df.shape)
 
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False)

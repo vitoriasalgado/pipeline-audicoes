@@ -68,7 +68,7 @@ Python **3.14.6** (venv local) · Airflow **2.10.5** (Python 3.12 na imagem) · 
 
 - **Código em português, commits em inglês.** Funções, variáveis, arquivos e colunas usam português em `snake_case` (`extrair_para_minio`, `transformar`, `carregar`, `faixa`, `artista`, `scrobble_uts`, `dim_tempo`). Mensagens de commit seguem Conventional Commits **em inglês**. Não "corrigir" nomes para inglês.
 - **`print()` é a observabilidade do projeto** — não há logger configurado. Nos scripts rodados no host, usar `print(..., flush=True)`: o import do pandas na 3.14 é lento e um script silencioso parece travado.
-- `# type: ignore` nos imports do Airflow (os pacotes só existem dentro do container, o Pylance reclama no host).
+- **Imports do Airflow ficam sem `# type: ignore`.** O Airflow não está na venv do host (só existe no container), então o editor marca esses imports como não resolvidos nas duas DAGs — é falso positivo conhecido e se convive com ele. Se um dia incomodar, a correção é o inverso do que estava: pôr o `# type: ignore` nas **duas**, não em uma só.
 
 ## Comandos
 
