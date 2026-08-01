@@ -6,6 +6,8 @@ from airflow import DAG
 from airflow.exceptions import AirflowSkipException
 from airflow.operators.python import PythonOperator
 
+from alertas import avisar_falha
+
 def descobrir_marca_dagua():
 
     psycopg2_conn = psycopg2.connect(
@@ -210,6 +212,7 @@ with DAG(
     default_args={
         "retries": 2,
         "retry_delay": timedelta(minutes=1),
+        "on_failure_callback": avisar_falha,
     },
     tags=["lastfm"],
 ) as dag:

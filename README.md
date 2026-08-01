@@ -10,8 +10,8 @@ tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhã
 (bronze → prata → ouro). O **Spotify** entra como segunda fonte (fase 2b), enriquecendo
 as dimensões via OAuth.
 
-> **Status:** 🚧 em construção — **duas** pipelines rodando no Airflow: Last.fm (`pipeline_audicoes`, `@daily`) e Spotify (`pipeline_spotify`, `@weekly`), ambas bronze → prata → ouro. O histórico completo do Last.fm (~6 anos) está no warehouse e o Spotify enriquece as dimensões — um **esquema constelação** (duas fatos, dimensões compartilhadas) que já responde a pergunta que cruza as duas fontes. Próxima fase: validações de qualidade entre as etapas.
-> O código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
+> **Status:** ✅ completo e rodando. **Duas** pipelines no Airflow — Last.fm (`pipeline_audicoes`, `@daily`) e Spotify (`pipeline_spotify`, `@weekly`) — ambas bronze → prata → ouro. O histórico completo do Last.fm (~6 anos) está no warehouse, o Spotify enriquece as dimensões, e o **esquema constelação** (duas fatos sobre as mesmas dimensões) responde a pergunta que cruza as duas fontes.
+> O código de cada etapa foi escrito missão a missão, seguindo um roteiro de estudo — as 19 estão fechadas.
 
 ## Arquitetura
 
@@ -47,9 +47,9 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 ![Modelo em constelação: duas fatos sobre uma camada de dimensões compartilhada](docs/modelo_constelacao.png)
 
-## O que vem depois
+## Extensões possíveis
 
-- ⏳ **Validações de qualidade entre as etapas** — checagens que falham a DAG quando o dado chega fora do esperado, em vez de deixar passar.
+O escopo do projeto está fechado. Num próximo ciclo caberiam validações de qualidade entre as etapas — checagens que falham a DAG quando o dado chega fora do esperado, em vez de deixar passar.
 
 ## Documentação
 

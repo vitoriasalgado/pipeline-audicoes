@@ -6,6 +6,8 @@ from airflow import DAG # type: ignore
 from airflow.operators.python import PythonOperator # type: ignore
 from spotipy.oauth2 import SpotifyOAuth
 
+from alertas import avisar_falha
+
 def extrair(ts_nodash):
 
     auth_manager = SpotifyOAuth(
@@ -255,6 +257,7 @@ with DAG(
     default_args={
         "retries": 2,
         "retry_delay": timedelta(minutes=1),
+        "on_failure_callback": avisar_falha,
     },
     tags=["spotify"],
 ) as dag:

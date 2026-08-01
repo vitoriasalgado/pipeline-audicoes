@@ -6,7 +6,7 @@
 | **Versão** | 0.3 (*as-built* — alinhado ao código em produção) |
 | **Data** | Julho de 2026 |
 | **Stacks** | MinIO (S3) · Apache Airflow · PostgreSQL |
-| **Status** | Em construção — núcleo Last.fm e Fase 2b (Spotify) implementados; ver §8 e §9.1 |
+| **Status** | Escopo concluído e em operação — as duas esteiras rodando; ver §8 (critérios) e §9.1 (limitações) |
 
 
 ---
@@ -298,7 +298,7 @@ Legenda: ✅ atendido · ⚠️ atendido parcialmente · ⏳ não iniciado.
 
 | | Requisito | Status |
 |---|---|---|
-| **RNF1** | Orquestração observável (UI, logs, retries, alertas) via Airflow; duas DAGs | ⚠️ UI, logs e `retries=2` ok; **alertas não configurados** (sem e-mail/webhook) |
+| **RNF1** | Orquestração observável (UI, logs, retries, alertas) via Airflow; duas DAGs | ✅ UI, logs, `retries=2` e aviso por webhook (`on_failure_callback`, só após esgotar os retries) |
 | **RNF2** | Tudo containerizado (`docker-compose`), reproduzível localmente | ⚠️ Airflow, MinIO, Postgres e Redis no compose; o `backfill.py` roda no host |
 | **RNF3** | Credenciais fora do código (`.env`); **nunca** commitadas | ✅ `.env` no `.gitignore`, `.env.example` versionado |
 | **RNF4** | Token OAuth do Spotify com cache + refresh automático | ✅ `.cache` montado no container, `open_browser=False` |
@@ -311,10 +311,9 @@ Legenda: ✅ atendido · ⚠️ atendido parcialmente · ⏳ não iniciado.
 
 - [x] DAG `pipeline_audicoes` **verde** de ponta a ponta; histórico do Last.fm carregado.
 - [x] DAG `pipeline_spotify` **verde**; dimensões enriquecidas e `fato_top_spotify` populado.
-- [ ] Consultas analíticas respondendo, incluindo o cruzamento **Last.fm × Spotify** (mais-tocado vs top, e marcação "está na biblioteca").
-      → "artista mais ouvido por mês" ✅; o **cruzamento entre as fontes** é o que falta.
-- [ ] Falha provocada → Airflow tenta de novo e alerta; nada de lixo no warehouse.
-      → o retry funciona e o "nada de lixo" se sustenta (cargas atômicas, FKs vindas do upsert); falta o **alerta** (RNF1).
+- [x] Consultas analíticas respondendo, incluindo o cruzamento **Last.fm × Spotify** (mais-tocado vs top, e marcação "está na biblioteca").
+- [x] Falha provocada → Airflow tenta de novo e alerta; nada de lixo no warehouse.
+      → verificado por injeção de falha: 2 retries e, só depois de esgotá-los, aviso por webhook.
 - [x] Repositório com README, diagrama, este PRD, `docker-compose.yaml`, código das DAGs.
 - [x] Post de portfólio (problema → solução → decisões → aprendizados). — dois posts publicados.
 
@@ -364,12 +363,12 @@ limite da fonte. Não há plano de ação associado.
 | Fase | Entrega | Status |
 |---|---|---|
 | 1 — Python | extração Last.fm funcionando, `raw` no MinIO | ✅ |
-| 2 — SQL/Postgres | esquema constelação criado; primeira query analítica ("artista mais ouvido por mês") | ✅ a query que **cruza as duas fontes** pertence à fase 4b, abaixo |
+| 2 — SQL/Postgres | esquema criado; primeira query analítica ("artista mais ouvido por mês") | ✅ |
 | 3 — Docker/MinIO | `docker-compose` subindo o lake | ✅ |
 | 4 — Airflow | `transform`/`load` + DAG `pipeline_audicoes` verde | ✅ |
-| 4b — Spotify | app + OAuth; DAG `pipeline_spotify` (top + biblioteca) enriquecendo as dimensões | ✅ falta a query cruzada Last.fm × Spotify |
-| 5 — Qualidade | tasks de validação | ⏳ |
-| 6 — Portfólio | README, diagrama, este PRD, post | ✅ dois posts publicados |
+| 4b — Spotify | app + OAuth; DAG `pipeline_spotify` (top + biblioteca) enriquecendo as dimensões; cruzamento entre as fontes | ✅ |
+| 5 — Qualidade | tasks de validação | ⏳ fora do escopo entregue — extensão possível, não pendência |
+| 6 — Portfólio | README, diagrama, este PRD, post | ✅ |
 
 **Trilha paralela — as dívidas da §9.1: concluída.** Não fazia parte das fases do guia e
 não tinha entrega de portfólio associada; era manutenção. As oito divergências levantadas

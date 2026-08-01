@@ -76,6 +76,7 @@ x-airflow-common:
     SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
     SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
     SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI}
+    ALERTA_WEBHOOK_URL: ${ALERTA_WEBHOOK_URL:-}
     # The following line can be used to set a custom config file, stored in the local config folder
     # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file
     # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
