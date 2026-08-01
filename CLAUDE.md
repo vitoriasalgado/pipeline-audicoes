@@ -29,9 +29,9 @@ O progresso vive numa **fonte única de verdade: o checklist "Roteiro" do `READM
 
 Repo público: https://github.com/vitoriasalgado/pipeline-audicoes
 
-Documentos-fonte das missões: `docs/roteiro_post.md` (passo a passo Missão 0→18, **local/gitignored**) e `docs/rascunho_post.md` (caderno de síntese do post, preenchido a cada missão).
+Documento-fonte das missões: `docs/roteiro_post.md` (passo a passo Missão 0→18, **local/gitignored**).
 
-Trabalho que **não** é missão (conserto de dívida técnica, ajuste de documentação) não entra no checklist do README nem no `rascunho_post.md` — a trilha de dívidas vive na §9.1 do PRD e é manutenção, não portfólio.
+Trabalho que **não** é missão (conserto de dívida técnica, ajuste de documentação) não entra no checklist do README — é manutenção, não portfólio.
 
 ## Arquitetura (o big picture)
 
@@ -93,7 +93,7 @@ Estrutura das pastas: `dags/` (as **duas** DAGs — `pipeline_audicoes` e `pipel
 
 **Critério de aposentadoria:** script que deixa de refletir o que a DAG faz vai para `arquivo/`. Já aconteceu com as duas cargas e as duas etapas do Spotify, que ficaram com `ON CONFLICT (nome)` e `UPDATE ... WHERE nome` depois que as DAGs passaram a usar `lower(nome)` e upsert.
 
-O `backfill.py` roda nos dois lugares sem edição: `python scripts/backfill.py` no host, ou `docker compose exec airflow-worker python /opt/airflow/scripts/backfill.py` no container. Scripts sempre rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`), pra os caminhos relativos e o `.cache` do spotipy resolverem certo.
+O `backfill.py` roda nos dois lugares sem edição: `python scripts/backfill.py` no host, ou `docker compose exec airflow-worker python /opt/airflow/scripts/backfill.py` no container. Scripts sempre rodados a partir da **raiz** do projeto (ex.: `python spotify/test_spotify.py`), pra os caminhos relativos e o `.cache` do spotipy resolverem certo.
 
 `db/schema.sql` descreve o **estado final** e é aplicado pelo compose só na criação do volume — **editar o arquivo não altera tabelas que já existem**. Toda mudança de schema em base povoada precisa de um par: o `schema.sql` atualizado (para clone novo) **e** um script em `db/migracoes/` (para as bases que já existem), rodado à mão no host. Sem o segundo, o clone novo funciona e o warehouse de verdade quebra — foi o que quase aconteceu com os índices por `lower(nome)` (migração `001`).
 

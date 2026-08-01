@@ -10,7 +10,7 @@ tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhã
 (bronze → prata → ouro). O **Spotify** entra como segunda fonte (fase 2b), enriquecendo
 as dimensões via OAuth.
 
-> **Status:** ✅ completo e rodando. **Duas** pipelines no Airflow — Last.fm (`pipeline_audicoes`, `@daily`) e Spotify (`pipeline_spotify`, `@weekly`) — ambas bronze → prata → ouro. O histórico completo do Last.fm (~6 anos) está no warehouse, o Spotify enriquece as dimensões, e o **esquema constelação** (duas fatos sobre as mesmas dimensões) responde a pergunta que cruza as duas fontes.
+> **Status:** ✅ completo e rodando. **Duas** pipelines no Airflow — Last.fm (`pipeline_audicoes`, `@daily`) e Spotify (`pipeline_spotify`, `@weekly`) — ambas bronze → prata → ouro. O histórico completo do Last.fm (~6 anos) está no warehouse, o Spotify enriquece as dimensões, e o **esquema constelação** (duas fatos sobre dimensões compartilhadas) responde a pergunta que cruza as duas fontes.
 > O código de cada etapa foi escrito missão a missão, seguindo um roteiro de estudo — as 19 estão fechadas.
 
 ## Arquitetura
@@ -41,11 +41,11 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 - ✅ **Análise (ouro)** — o esquema estrela responde a pergunta que originou o projeto: *"qual foi meu artista mais ouvido em cada mês"* — `fato_audicoes` × `dim_faixa` × `dim_artista` × `dim_tempo`, uma linha por mês ao longo dos anos. A consulta está em [`db/consultas/artista_por_mes.sql`](db/consultas/artista_por_mes.sql).
 
-**Segunda fonte — Spotify (via OAuth).** Uma segunda DAG (`pipeline_spotify`, semanal) traz meus *tops* e minha biblioteca do Spotify pelo mesmo caminho bronze → prata → ouro. No warehouse, isso vira um **esquema constelação**: uma nova fato (`fato_top_spotify`) que compartilha as mesmas dimensões da `fato_audicoes`, além de enriquecer artistas e faixas com os ids do Spotify — casando as duas fontes **por nome**. O token OAuth roda sozinho dentro do container (sem navegador), reutilizando o *refresh token* em cache.
+**Segunda fonte — Spotify (via OAuth).** Uma segunda DAG (`pipeline_spotify`, semanal) traz meus *tops* e minha biblioteca do Spotify pelo mesmo caminho bronze → prata → ouro. No warehouse, isso vira um **esquema constelação**: uma nova fato (`fato_top_spotify`) que compartilha com a `fato_audicoes` as dimensões de artista e de faixa, além de enriquecer artistas e faixas com os ids do Spotify — casando as duas fontes **por nome**. O token OAuth roda sozinho dentro do container (sem navegador), reutilizando o *refresh token* em cache.
 
 - ✅ **O cruzamento entre as fontes (ouro)** — a constelação responde o que nenhuma das duas fatos responderia sozinha: o *top computado* pelo Spotify ao lado do *mais tocado* de verdade, na mesma janela de tempo. São duas consultas, porque são duas perguntas: [`cruzamento_lastfm_spotify.sql`](db/consultas/cruzamento_lastfm_spotify.sql) pergunta se o top se sustenta nas execuções (recortado no top 20, cabe numa tela) e [`cruzamento_completo.sql`](db/consultas/cruzamento_completo.sql) pergunta onde as duas discordam nos dois sentidos (`FULL OUTER`, sem recorte). As duas fontes concordam no topo e divergem conforme desce — e a `fato_top_spotify` guarda uma série histórica que a própria API do Spotify não guarda, porque ela só devolve o "top de agora".
 
-![Modelo em constelação: duas fatos sobre uma camada de dimensões compartilhada](docs/modelo_constelacao.png)
+![Modelo em constelação: duas fatos compartilhando as dimensões de artista e de faixa](docs/modelo_constelacao.png)
 
 - ✅ **Qualidade e alerta** — cada DAG termina numa task de **validação**: um punhado de perguntas sobre o que acabou de entrar (chave estrangeira órfã, dimensão duplicada, linha da prata que não chegou ao ouro) que precisam responder zero. Reprovou, a task fica vermelha e chega um **aviso por webhook** — só depois de esgotar as tentativas, para que falha que o retry resolve não vire barulho.
 
@@ -70,7 +70,7 @@ docs/        PRD e documentação
 > escritas missão a missão, foram para `arquivo/` quando pararam de refletir o que a DAG faz —
 > código aposentado é registro, não deve passar por estado atual.
 
-> Os scripts são rodados a partir da **raiz** do projeto (ex.: `python spotify/extrair_spotify.py`).
+> Os scripts são rodados a partir da **raiz** do projeto (ex.: `python spotify/test_spotify.py`).
 
 ## Pré-requisitos
 

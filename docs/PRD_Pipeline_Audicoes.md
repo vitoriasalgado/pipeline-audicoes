@@ -180,7 +180,7 @@ Scope: `user-read-recently-played`. Devolve as **últimas ~50** reproduções co
 
 ## 5. Modelo de dados (esquema estrela / constelação)
 
-Duas tabelas de fato compartilhando as mesmas dimensões.
+Duas tabelas de fato compartilhando as dimensões de artista e de faixa.
 
 ![Modelo em constelação: as duas DAGs alimentam duas fatos, que compartilham dim_artista, dim_faixa e dim_tempo](modelo_constelacao.png)
 
@@ -192,6 +192,7 @@ Implementado em [`db/schema.sql`](../db/schema.sql). O que segue reflete o schem
 - `fato_audicoes` — grão: 1 scrobble (Last.fm). Colunas: `id`, `scrobble_uts`, `faixa_id` → `dim_faixa`, `tempo_id` → `dim_tempo`. `UNIQUE (scrobble_uts, faixa_id)` → idempotência.
 - `fato_top_spotify` — grão: 1 item no ranking de uma coleta. Colunas: `id`, `snapshot_date`, `time_range`, `tipo` (`track`|`artist`), `posicao`, `faixa_id`, `artista_id`. `UNIQUE (snapshot_date, time_range, tipo, posicao)`. Permite ver a evolução do "top" do Spotify e cruzar com o mais-tocado do Last.fm.
   - As duas FKs são **nulas por construção**: linha de `tipo='track'` preenche `faixa_id` e deixa `artista_id` nulo, e vice-versa. Não há `CHECK` garantindo a exclusividade, mas a carga torna a linha órfã impossível: a FK é o id devolvido pelo upsert da dimensão, não um subselect que pode não casar (§6).
+  - **A `dim_tempo` não é compartilhada, e isso é escolha.** Só a `fato_audicoes` aponta para ela; a `fato_top_spotify` guarda `snapshot_date` como coluna própria. O motivo é o **grão**: a `dim_tempo` é de hora cheia, porque um scrobble acontece num instante; uma coleta do Spotify é um retrato semanal, e a hora dela não significa nada. Conformar exigiria ou inventar uma hora arbitrária para cada snapshot, ou rebaixar a `dim_tempo` para o dia e perder a análise por horário — que é uma das perguntas da §1. Então a constelação compartilha **duas** dimensões (`dim_artista`, `dim_faixa`), não três. Assimetria declarada, não esquecimento.
 
 **Dimensões (enriquecidas com Spotify)**
 - `dim_artista` (`id`, `nome` **UNIQUE**, `mbid`, `spotify_artist_id`)
