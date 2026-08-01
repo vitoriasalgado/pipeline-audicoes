@@ -182,6 +182,10 @@ Scope: `user-read-recently-played`. Devolve as **últimas ~50** reproduções co
 
 Duas tabelas de fato compartilhando as mesmas dimensões.
 
+![Modelo em constelação: as duas DAGs alimentam duas fatos, que compartilham dim_artista, dim_faixa e dim_tempo](modelo_constelacao.png)
+
+*As duas esteiras chegam a fatos diferentes — `fato_audicoes` guarda um evento por audição, `fato_top_spotify` guarda uma posição por coleta — e ambas apontam para a mesma camada de dimensões. É essa camada compartilhada que torna possível cruzar as fontes com um `JOIN`, em vez de casar nomes na mão fora do banco.*
+
 Implementado em [`db/schema.sql`](../db/schema.sql). O que segue reflete o schema real.
 
 **Fatos**

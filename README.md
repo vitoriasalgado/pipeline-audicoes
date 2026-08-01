@@ -10,7 +10,7 @@ tudo agendado e monitorado pelo **Apache Airflow**. Segue a arquitetura medalhã
 (bronze → prata → ouro). O **Spotify** entra como segunda fonte (fase 2b), enriquecendo
 as dimensões via OAuth.
 
-> **Status:** 🚧 em construção — **duas** pipelines rodando no Airflow: Last.fm (`pipeline_audicoes`, `@daily`) e Spotify (`pipeline_spotify`, `@weekly`), ambas bronze → prata → ouro. O histórico completo do Last.fm (~6 anos) está no warehouse e o Spotify já enriquece as dimensões — um **esquema constelação** (duas fatos, dimensões compartilhadas). Falta só a query que cruza as duas fontes.
+> **Status:** 🚧 em construção — **duas** pipelines rodando no Airflow: Last.fm (`pipeline_audicoes`, `@daily`) e Spotify (`pipeline_spotify`, `@weekly`), ambas bronze → prata → ouro. O histórico completo do Last.fm (~6 anos) está no warehouse e o Spotify enriquece as dimensões — um **esquema constelação** (duas fatos, dimensões compartilhadas) que já responde a pergunta que cruza as duas fontes. Próxima fase: validações de qualidade entre as etapas.
 > O código de cada etapa é escrito, missão a missão, seguindo um roteiro de estudo.
 
 ## Arquitetura
@@ -43,9 +43,13 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 **Segunda fonte — Spotify (via OAuth).** Uma segunda DAG (`pipeline_spotify`, semanal) traz meus *tops* e minha biblioteca do Spotify pelo mesmo caminho bronze → prata → ouro. No warehouse, isso vira um **esquema constelação**: uma nova fato (`fato_top_spotify`) que compartilha as mesmas dimensões da `fato_audicoes`, além de enriquecer artistas e faixas com os ids do Spotify — casando as duas fontes **por nome**. O token OAuth roda sozinho dentro do container (sem navegador), reutilizando o *refresh token* em cache.
 
+- ✅ **O cruzamento entre as fontes (ouro)** — a constelação responde o que nenhuma das duas fatos responderia sozinha: o *top computado* pelo Spotify ao lado do *mais tocado* de verdade, na mesma janela de tempo. As duas concordam no topo e divergem conforme desce — e a `fato_top_spotify` guarda uma série histórica que a própria API do Spotify não guarda, porque ela só devolve o "top de agora".
+
+![Modelo em constelação: duas fatos sobre uma camada de dimensões compartilhada](docs/modelo_constelacao.png)
+
 ## O que vem depois
 
-- ⏳ **A query cruzada Last.fm × Spotify** — comparar o *top computado* pelo Spotify (numa janela de tempo, só do que ouvi lá) com o *mais tocado* cru do Last.fm (evento a evento, ~6 anos, todas as fontes). Duas definições de "o que eu mais ouço", lado a lado.
+- ⏳ **Validações de qualidade entre as etapas** — checagens que falham a DAG quando o dado chega fora do esperado, em vez de deixar passar.
 
 ## Documentação
 
@@ -146,4 +150,4 @@ A segunda DAG, **`pipeline_spotify`** (`@weekly`), faz o mesmo caminho para o Sp
 - [x] Missão 15 — Transformar → `processed`: JSON do Spotify → Parquet limpo (prata)
 - [x] Missão 16 — Enriquecer as dimensões + `fato_top_spotify`: esquema constelação (ouro)
 - [x] Missão 17 — A DAG `pipeline_spotify` (`@weekly`)
-- [ ] Missão 18 — A query cruzada Last.fm × Spotify (top computado vs mais tocado)
+- [x] Missão 18 — A query cruzada Last.fm × Spotify (top computado vs mais tocado)
