@@ -76,7 +76,7 @@ docs/        PRD e documentação
 ## Pré-requisitos
 
 - Docker + Docker Compose
-- Python 3.10+
+- Python 3.11+ (o `requirements.txt` fixa `pandas==3.0`, que não instala no 3.10)
 - Conta no Last.fm + API key (grátis): https://www.last.fm/api/account/create
 - *(opcional, fase 2b)* App no [Spotify for Developers](https://developer.spotify.com/dashboard) — client id/secret + `redirect_uri` para o OAuth
 

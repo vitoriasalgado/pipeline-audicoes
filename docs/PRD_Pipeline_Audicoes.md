@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Projeto** | Pipeline de engenharia de dados de histórico musical |
-| **Versão** | 0.3 (*as-built* — alinhado ao código em produção) |
-| **Data** | Julho de 2026 |
+| **Versão** | 0.4 (*as-built* — alinhado ao código em produção) |
+| **Data** | Agosto de 2026 |
 | **Stacks** | MinIO (S3) · Apache Airflow · PostgreSQL |
 | **Status** | Escopo concluído e em operação — as duas esteiras rodando; ver §8 (critérios) e §9.1 (limitações) |
 
@@ -45,7 +45,7 @@ Segue a arquitetura **medalhão** (bronze → prata → ouro) do documento de st
 - Conta no **Last.fm** + API key (gratuita, sem OAuth).
 - **Spotify Premium** — desde 2026 é **obrigatório** para usar a Web API e para registrar o app. *(Premissa: o autor tem ou terá Premium. Sem isso, o escopo Spotify cai.)*
 - Conta do Spotify possivelmente já conectada ao Last.fm (nesse caso os scrobbles já incluem as reproduções do Spotify).
-- Docker + Docker Compose; Python 3.10+.
+- Docker + Docker Compose; **Python 3.11+** no host (o `requirements.txt` fixa `pandas==3.0`, que não instala no 3.10). Dentro da imagem do Airflow o Python é 3.12, com versões próprias — ver §9.1.
 
 ---
 
@@ -134,7 +134,7 @@ Spotify API ──► raw/  ──► processed/ ──►┤    fato_top_spotif
 - **Auth:** **OAuth 2.0 (Authorization Code)**. Exige **Spotify Premium**. Credenciais (`client_id`/`client_secret`) e `redirect_uri` no dashboard (https://developer.spotify.com/dashboard).
   - Authorize: `https://accounts.spotify.com/authorize`
   - Token: `https://accounts.spotify.com/api/token` (devolve `access_token` válido ~1h + `refresh_token`)
-  - **Scopes:** `user-top-read`, `user-library-read`, `user-read-recently-played`
+  - **Scopes:** `user-top-read` e `user-library-read` — os dois que a DAG pede. O `user-read-recently-played` seria necessário apenas para o endpoint 3 abaixo, que não é usado.
   - A lib `spotipy` (`SpotifyOAuth`) cuida do fluxo, do cache e do refresh do token.
 - **Limitações (importantes para o escopo — situação 2026):**
   - **Premium obrigatório** para usar a Web API.
@@ -195,8 +195,9 @@ Implementado em [`db/schema.sql`](../db/schema.sql). O que segue reflete o schem
   - **A `dim_tempo` não é compartilhada, e isso é escolha.** Só a `fato_audicoes` aponta para ela; a `fato_top_spotify` guarda `snapshot_date` como coluna própria. O motivo é o **grão**: a `dim_tempo` é de hora cheia, porque um scrobble acontece num instante; uma coleta do Spotify é um retrato semanal, e a hora dela não significa nada. Conformar exigiria ou inventar uma hora arbitrária para cada snapshot, ou rebaixar a `dim_tempo` para o dia e perder a análise por horário — que é uma das perguntas da §1. Então a constelação compartilha **duas** dimensões (`dim_artista`, `dim_faixa`), não três. Assimetria declarada, não esquecimento.
 
 **Dimensões (enriquecidas com Spotify)**
-- `dim_artista` (`id`, `nome` **UNIQUE**, `mbid`, `spotify_artist_id`)
-- `dim_faixa` (`id`, `nome`, `album`, `artista_id`, `spotify_track_id`, `na_biblioteca` **`NOT NULL DEFAULT FALSE`**, `biblioteca_added_at`, **UNIQUE (`nome`, `artista_id`)**)
+- `dim_artista` (`id`, `nome`, `mbid`, `spotify_artist_id`) — único por **`lower(nome)`**
+- `dim_faixa` (`id`, `nome`, `album`, `artista_id`, `spotify_track_id`, `na_biblioteca` **`NOT NULL DEFAULT FALSE`**, `biblioteca_added_at`) — único por **(`lower(nome)`, `artista_id`)**
+  - A unicidade vem **só dos índices por `lower(nome)`**, não de constraints `UNIQUE` na coluna. As constraints por nome exato existiram até a migração `003`, que as removeu de propósito: enquanto elas existiam, um `ON CONFLICT (nome)` continuava sendo SQL válido mirando o índice errado, e só estourava violação quando a colisão acontecia no índice por `lower(nome)` — foi assim que o backfill quebrou numa instalação nova. Sem elas, o alvo errado deixa de ser escrevível e o erro aparece na hora.
   - `na_biblioteca` é booleana de verdade, com dois estados. Ela reflete a biblioteca do Spotify **no momento da última coleta**: a carga zera a coluna e remarca `TRUE` apenas o que veio na coleta atual, então faixa removida da biblioteca volta a `FALSE`. Sem isso, `WHERE na_biblioteca = FALSE` devolveria zero linhas, porque em SQL `NULL` não é `FALSE`.
 - `dim_tempo` (`id`, `data`, `hora`, `ano`, `mes`, `dia`, `dia_semana`, **UNIQUE (`data`, `hora`)**)
 
@@ -395,7 +396,7 @@ A camada `processed` é a exceção deliberada — derivada, regenerável, e a m
 **2. A fonte gera/coleta de forma confiável? O dado está disponível quando preciso?**
 O Last.fm é estável. O cuidado é o limite informal dos ToS (~5 req/s por IP); a mitigação é `sleep` entre páginas e os `retries` da task no Airflow (§6). Em lote diário isso não é gargalo. Aqui "disponível quando preciso" depende mais do **Airflow estar no ar** do que da API.
 
-Com `raw` imutável + etapas idempotentes + marca d'água, reexecutar é seguro nos dois sentidos: não duplica e não deixa buraco — o que falhou volta na execução seguinte. A ressalva que resta é do Spotify, cujo `raw` ainda é sobrescrito (**D2**).
+Com `raw` imutável + etapas idempotentes + marca d'água, reexecutar é seguro nos dois sentidos: não duplica e não deixa buraco — o que falhou volta na execução seguinte. Vale para as duas esteiras: o `raw` do Spotify também grava pasta por execução (`spotify/<ts_nodash>/`), então reexecutar não apaga o retrato anterior.
 
 **3. Qual o destino dos dados após a ingestão?**
 Destino imediato da ingestão: **MinIO, bucket `raw`** (JSON cru, bronze). Destino final: **Postgres analítico** (`fato_audicoes` + dimensões, ouro), passando por `processed` (Parquet, prata). A task `extrair` da DAG se ocupa **apenas** do `raw` — ingestão não se mistura com transformação.
@@ -412,7 +413,7 @@ Pequeno: cada scrobble são poucos bytes; o histórico todo fica na casa de milh
 A API devolve **JSON** (`format=json`); a task `transformar` da DAG converte para **Parquet** na camada `processed`. JSON é bom para ingestão (é o que a API fala, preserva tudo) e ruim para análise (verboso, sem tipos); Parquet — colunar, tipado, comprimido — alimenta o Postgres sem dor. Cada formato no seu trecho da jornada.
 
 **7. A origem está pronta para uso imediato? Por quanto tempo vale e o que a inutiliza?**
-Não totalmente: o JSON cru exige tratamento — descartar `nowplaying` (vem sem `date`), lidar com `mbid`/`album` vazios e achatar a estrutura aninhada. Quanto à validade: um scrobble de 2020 não muda, então o dado vale como registro permanente e a idade não o inutiliza. O que inutiliza é **duplicação** (incremento mal feito) ou **schema drift** (a API mudar um campo). Defesa: deduplicação na transformação e validação na carga (Fase 5, ainda pendente).
+Não totalmente: o JSON cru exige tratamento — descartar `nowplaying` (vem sem `date`), lidar com `mbid`/`album` vazios e achatar a estrutura aninhada. Quanto à validade: um scrobble de 2020 não muda, então o dado vale como registro permanente e a idade não o inutiliza. O que inutiliza é **duplicação** (incremento mal feito) ou **schema drift** (a API mudar um campo). Defesa: deduplicação na transformação e a task `validar` no fim de cada DAG (Fase 5, concluída — RF8, §6).
 
 **Ressalva:** "imutável" vale para o `raw` das duas esteiras, não para o `processed`, que é derivado e sobrescrito de propósito — ver resposta 1 e §6.
 
