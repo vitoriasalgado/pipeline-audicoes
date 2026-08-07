@@ -251,6 +251,12 @@ Quem quiser eliminar até esse resíduo pode congelar a janela passando também 
 
 **Imutabilidade por camada.** O `raw` é imutável: cada execução escreve numa pasta própria e nunca sobrescreve a anterior. O `processed` é deliberadamente **sobrescrito** — ele é derivado e regenerável, e a marca d'água garante o reprocessamento: se a `transformar` funciona e a `carregar` falha, o `scrobble_uts` não entra no warehouse, a marca não avança, e a execução seguinte volta a buscar exatamente aquela janela. Perder a camada prata não custa nada; perder o bronze custaria uma nova rodada de chamadas à API.
 
+**O caso em que isso deixou de ser teoria (ago/2026).** Os upserts da carga faziam `SET mbid = EXCLUDED.mbid` e `SET album = EXCLUDED.album` — o valor recém-chegado sempre vencia. Como o Last.fm devolve `artist.mbid` vazio em parte dos scrobbles, bastava um scrobble sem mbid para **apagar** o mbid que outro tinha trazido, e a DAG diária repetia isso todo dia. O defeito não dispara nada: o banco continua consistente, sem FK órfã, sem duplicata, sem linha no futuro. Ele não se manifesta como falha, só como ausência — e foi encontrado lendo o SQL, não por alerta.
+
+Na hora de recuperar, as três camadas estavam assim: o `processed` guarda só a última janela, o warehouse é onde o dado se perdeu, e o **bronze tinha tudo**. Varrendo os 346 objetos do `raw` (61.742 scrobbles) e cruzando com a dimensão, 70 artistas tinham no bronze um mbid que o warehouse não tinha mais — recuperados por `scripts/reparar_dimensoes.py`. O álbum, medido do mesmo jeito, não tinha perda alguma: era exposição, não estrago.
+
+Duas conclusões que valem mais que o conserto. **Primeira:** a imutabilidade do bronze não é higiene, é a única cópia de recurso quando a camada de cima erra em silêncio — se o `raw` fosse uma pasta sobrescrita a cada execução, os 70 estariam perdidos. **Segunda:** a regra dos upserts virou uma só, aplicada nos três pontos das duas DAGs — `COALESCE(NULLIF(<existente>, ''), NULLIF(<novo>, ''))`, ou seja, *o primeiro valor não-vazio vence, com preferência pelo que já está no banco*. O `NULLIF` nos **dois** lados é necessário: sem ele no lado novo, o vazio sobrescreve; sem ele no lado existente, um `''` já gravado trava o campo para sempre, porque `''` não é `NULL` e o `COALESCE` o aceita como valor bom. É a mesma regra que o `nome` já seguia — a primeira leitura boa é a que fica.
+
 ### Carga histórica — `scripts/backfill.py` (one-off, fora do Airflow)
 [`scripts/backfill.py`](../scripts/backfill.py), rodado no host (MinIO em `localhost:9000`, Postgres em `localhost:5433`). É aqui que o medalhão acontece como planejado:
 
@@ -358,6 +364,7 @@ limite da fonte. Não há plano de ação associado.
 - A carga da DAG do Last.fm é **linha a linha** — aceitável para as centenas de linhas de uma janela diária, não para lotes grandes; por isso o `backfill.py` usa `execute_values`. ⚠️ Se converter, manter o **`commit` único** no fim: a atomicidade é o que garante a recuperação (§6).
 - O casamento entre fontes não resolve **grafias alternativas nem alfabetos diferentes** — `The Neighbourhood`/`The Neighborhood` e `Girls' Generation`/`소녀시대` são linhas separadas. Resolver exigiria usar `mbid`/`spotify_artist_id` como chave alternativa.
 - O `transformar` do Spotify considera apenas o **primeiro artista** de cada faixa — faixas colaborativas perdem os demais.
+- **As validações não pegam sobrescrita silenciosa de atributo.** Elas perguntam sobre o estado do warehouse (FK órfã, duplicata por caixa, linha da prata ausente no ouro), e um valor bom trocado por vazio deixa o estado perfeitamente consistente — foi assim que o bug do `mbid` (§6) passou. "Este campo já teve valor?" é uma pergunta que só o bronze responde, comparando as camadas; nenhuma consulta pós-carga a alcança. O que pegaria é um teste sobre o `ON CONFLICT` rodando contra um Postgres real.
 
 ---
 

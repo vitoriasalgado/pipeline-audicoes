@@ -185,7 +185,7 @@ def carregar(ti):
             ON CONFLICT (lower(nome), artista_id) DO UPDATE
                SET spotify_track_id = COALESCE(EXCLUDED.spotify_track_id,
                                                dim_faixa.spotify_track_id),
-                   album = COALESCE(dim_faixa.album, EXCLUDED.album)
+                   album = COALESCE(NULLIF(dim_faixa.album, ''), NULLIF(EXCLUDED.album, ''))
             RETURNING id;
             """,
             (nome, album, artista_id, spotify_track_id),

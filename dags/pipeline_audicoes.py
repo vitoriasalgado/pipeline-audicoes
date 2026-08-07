@@ -161,7 +161,11 @@ def carregar():
 
     for index, row in df_check.iterrows():
         cur.execute(
-            "INSERT INTO dim_artista (nome, mbid) VALUES (%s, %s) ON CONFLICT (lower(nome)) DO UPDATE SET mbid = EXCLUDED.mbid " \
+            # O Last.fm devolve mbid vazio em parte dos scrobbles: sem o NULLIF,
+            # um '' apagaria o mbid bom que outro scrobble trouxe.
+            "INSERT INTO dim_artista (nome, mbid) VALUES (%s, %s) " \
+            "ON CONFLICT (lower(nome)) DO UPDATE " \
+            "SET mbid = COALESCE(NULLIF(dim_artista.mbid, ''), NULLIF(EXCLUDED.mbid, '')) " \
             "RETURNING id",
             (row["artista"], row["artista_mbid"]),
         )
@@ -170,7 +174,8 @@ def carregar():
         cur.execute(
             """
             INSERT INTO dim_faixa (nome, album, artista_id) VALUES (%s, %s, %s)
-            ON CONFLICT (lower(nome), artista_id) DO UPDATE SET album = EXCLUDED.album
+            ON CONFLICT (lower(nome), artista_id) DO UPDATE
+               SET album = COALESCE(NULLIF(dim_faixa.album, ''), NULLIF(EXCLUDED.album, ''))
             RETURNING id;
             """,
             (row["faixa"], row["album"], artista_id),
