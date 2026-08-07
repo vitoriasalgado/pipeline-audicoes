@@ -8,6 +8,8 @@ import pandas as pd
 
 COLUNAS = ["name", "artist.#text", "album.#text", "date.uts", "mbid", "artist.mbid"]
 
+TEXTOS = ["faixa", "artista", "album", "faixa_mbid", "artista_mbid"]
+
 NOMES = {
     "name": "faixa",
     "artist.#text": "artista",
@@ -29,8 +31,9 @@ def extrair_faixas(pagina):
 def limpar(faixas):
     """Achata, tipa e deduplica as faixas cruas; devolve o DataFrame da prata."""
     df = pd.json_normalize(faixas)
-    df = df[COLUNAS]
+    df = df.reindex(columns=COLUNAS)
     df = df.rename(columns=NOMES)
+    df[TEXTOS] = df[TEXTOS].astype(object).fillna("")
 
     df["scrobble_uts"] = pd.to_numeric(df["scrobbles_uts"], errors="coerce")
     df["data_hora"] = pd.to_datetime(df["scrobble_uts"], unit="s", errors="coerce")

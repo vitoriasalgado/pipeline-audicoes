@@ -65,6 +65,24 @@ def test_mesma_faixa_em_instantes_diferentes_fica():
     assert len(df) == 2
 
 
+def test_pagina_inteira_sem_album():
+    """O json_normalize só cria a coluna se alguma faixa do lote trouxer a chave."""
+    sem_album = faixa("Elephant", 1603188238)
+    del sem_album["album"]
+
+    df = limpar([sem_album])
+
+    assert len(df) == 1
+    assert df["album"].iloc[0] == ""
+
+
+def test_pagina_so_com_nowplaying():
+    """Sem nenhuma faixa datada, nem a coluna `date.uts` existe — e sobra zero linha."""
+    df = limpar([nowplaying("The Less I Know")])
+
+    assert len(df) == 0
+
+
 def test_data_hora_derivada_do_uts():
     df = limpar([faixa("Elephant", 1603188238)])
 
