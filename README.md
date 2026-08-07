@@ -48,6 +48,7 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 
 ![Modelo em constelação: duas fatos compartilhando as dimensões de artista e de faixa](docs/modelo_constelacao.png)
 
+- ✅ **Testes** — a transformação da prata vive em `dags/transformacoes.py`, separada do I/O, e é coberta por testes que rodam em segundos sem subir Airflow, MinIO ou Postgres (`pytest`, a partir da raiz). Eles cobrem o que a API tem de escorregadio: o `track` que vem como objeto quando a página traz um resultado só, o "tocando agora" que chega sem data, e a deduplicação por (instante, faixa).
 - ✅ **Qualidade e alerta** — cada DAG termina numa task de **validação**: um punhado de perguntas sobre o que acabou de entrar (chave estrangeira órfã, dimensão duplicada, linha da prata que não chegou ao ouro) que precisam responder zero. Reprovou, a task fica vermelha e chega um **aviso por webhook** — só depois de esgotar as tentativas, para que falha que o retry resolve não vire barulho.
 
 ## Documentação
@@ -57,11 +58,12 @@ Além da ingestão do dia a dia (a DAG), a **carga histórica completa** (`backf
 ## Estrutura do projeto
 
 ```
-dags/        as duas DAGs do Airflow (+ validações e alerta) — é isto que roda
+dags/        as duas DAGs do Airflow (+ transformação, validações e alerta) — é isto que roda
+tests/       testes da transformação (pytest, sem subir nada)
 lastfm/      utilitário de host: ler o Parquet da prata
 spotify/     utilitário de host: conferir o OAuth listando os top tracks
 db/          schema.sql (esquema do warehouse) + migracoes/ + consultas/ (as queries analíticas)
-scripts/     backfill.py — carga histórica pontual
+scripts/     backfill.py (carga histórica) + reparar_dimensoes.py (reparo pontual)
 arquivo/     código aposentado, mantido como registro das missões
 docs/        PRD e documentação
 ```

@@ -7,6 +7,7 @@ from airflow.exceptions import AirflowSkipException
 from airflow.operators.python import PythonOperator
 
 from alertas import avisar_falha
+from transformacoes import extrair_faixas, limpar
 from validacoes import validar_lastfm
 
 def descobrir_marca_dagua():
@@ -100,29 +101,9 @@ def transformar(ti):
     lista_de_faixas = []
     for obj in objetos["Contents"]:
         conteudo = s3.get_object(Bucket="raw", Key=obj["Key"])["Body"].read().decode("utf-8")
-        data = json.loads(conteudo)
-        faixas = data["recenttracks"]["track"]
-        if isinstance(faixas, dict):
-            faixas = [faixas]
-        lista_de_faixas.extend(faixas)
+        lista_de_faixas.extend(extrair_faixas(json.loads(conteudo)))
 
-
-    df = pd.json_normalize(lista_de_faixas)
-    df = df[["name", "artist.#text", "album.#text", "date.uts", "mbid", "artist.mbid"]]
-    df.rename(columns={
-        "name": "faixa",
-        "artist.#text": "artista",
-        "album.#text": "album",
-        "date.uts": "scrobbles_uts",
-        "mbid": "faixa_mbid",
-        "artist.mbid": "artista_mbid"
-    }, inplace=True)
-
-    df["scrobble_uts"] = pd.to_numeric(df["scrobbles_uts"], errors="coerce")
-    df["data_hora"] = pd.to_datetime(df["scrobble_uts"], unit="s", errors="coerce")
-    df = df.dropna(subset=["scrobble_uts"])   # descarta o nowplaying (vem sem date)
-    df = df.drop_duplicates(subset=["scrobble_uts", "faixa"])
-    df = df.drop(columns=["scrobbles_uts"])
+    df = limpar(lista_de_faixas)
 
     print(len(df))
 

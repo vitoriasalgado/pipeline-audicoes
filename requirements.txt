@@ -8,3 +8,6 @@ pandas==3.0.3
 pyarrow==25.0.0
 psycopg2-binary==2.9.12
 spotipy==2.26.0
+
+# Só no host: os testes rodam fora do Airflow, o container não precisa dele.
+pytest==9.1.1
